@@ -1,0 +1,5 @@
+# PowerShell
+config/config.psd1
+*.log
+*.tmp
+.vscode/
