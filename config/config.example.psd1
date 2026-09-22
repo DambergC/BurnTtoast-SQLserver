@@ -4,7 +4,7 @@
     SqlDatabase = 'ToastNotifications'
     SqlPort = 1433
     UseIntegratedSecurity = $true
-    # Static PSD1 files cannot provide runtime credentials; the included scripts therefore use integrated security.
+    # When UseIntegratedSecurity = $false, provide a static hashtable with UserName and Password or inject a PSCredential at runtime.
     SqlCredential = $null
     # PSD1 values must be static. Leave as $null to auto-detect the local computer name in the client script.
     ClientName = $null

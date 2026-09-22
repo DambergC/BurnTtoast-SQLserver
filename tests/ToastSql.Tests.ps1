@@ -4,6 +4,14 @@ Describe 'ToastSql module' {
         $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
         Get-ToastConnectionString $c | Should -Match 'tcp:sql01,1433'
     }
+    It 'builds a SQL authentication connection string from static SqlCredential data' {
+        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$false;SqlCredential=@{UserName='toastuser';Password='toastpass'};Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
+        $connectionString = Get-ToastConnectionString $c
+        $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($connectionString)
+
+        $builder['User ID'] | Should -Be 'toastuser'
+        $builder['Password'] | Should -Be 'toastpass'
+    }
     It 'rejects an unreachable SQL port' {
         InModuleScope ToastSql {
             function Test-NetConnection { $false }
@@ -178,7 +186,7 @@ Describe 'ToastSql module' {
             { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*at least one value for: ClientGroups*"
         }
 
-        It 'rejects non-integrated security when loading from a PSD1' {
+        It 'requires SqlCredential when integrated security is disabled' {
             $configPath = Join-Path $TestDrive 'sql-auth.psd1'
             Set-Content -Path $configPath -Value @"
 @{
@@ -195,7 +203,34 @@ Describe 'ToastSql module' {
 }
 "@
 
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*require integrated security instead of runtime SQL credentials*"
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*SqlCredential must be provided*"
+        }
+
+        It 'accepts static SqlCredential data when integrated security is disabled' {
+            $configPath = Join-Path $TestDrive 'sql-auth-valid.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$false
+    SqlCredential = @{
+        UserName = 'toastuser'
+        Password = 'toastpass'
+    }
+    ClientName = `$null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
+
+            $config.UseIntegratedSecurity | Should -BeFalse
+            $config.SqlCredential.UserName | Should -Be 'toastuser'
         }
     }
 }

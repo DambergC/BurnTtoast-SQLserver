@@ -16,7 +16,7 @@ Toasten skickas alltså inte via SQL eller WinRM. SQL används som kö och statu
 - Windows PowerShell 5.1 eller PowerShell 7.
 - SQL Server med en standardinstans lyssnande på TCP 1433.
 - Klienterna får ansluta till SQL Server på TCP 1433.
-- Windows Integrated Security rekommenderas och används av de medföljande PSD1-baserade skripten. Andra credential-flöden behöver tillföra dem vid körning, inte i PSD1-filen.
+- Windows Integrated Security rekommenderas. SQL-login kan användas om `SqlCredential` tillförs säkert vid körning eller som en statisk `@{ UserName='...'; Password='...' }`-hashtable utanför versionshantering.
 - BurntToast installerat på klienterna, helst från intern PowerShell-repository i produktion.
 - Klientscriptet måste köras i användarens interaktiva session, inte som `SYSTEM`, för att toasten ska visas.
 

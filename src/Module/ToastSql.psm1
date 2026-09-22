@@ -1,5 +1,37 @@
 Set-StrictMode -Version Latest
 
+function Get-ToastSqlCredentialValues {
+    param(
+        [Parameter(Mandatory)]$SqlCredential,
+        [string]$Path = 'configuration'
+    )
+
+    if ($SqlCredential -is [pscredential]) {
+        return @{
+            UserName = $SqlCredential.UserName
+            Password = $SqlCredential.GetNetworkCredential().Password
+        }
+    }
+
+    if ($SqlCredential -is [hashtable]) {
+        $missing = @('UserName','Password' | Where-Object { -not $SqlCredential.ContainsKey($_) })
+        if ($missing.Count -gt 0) {
+            throw "Config file '$Path' setting SqlCredential must define: $($missing -join ', ') when UseIntegratedSecurity = `$false."
+        }
+
+        if ([string]::IsNullOrWhiteSpace([string]$SqlCredential['UserName']) -or [string]::IsNullOrWhiteSpace([string]$SqlCredential['Password'])) {
+            throw "Config file '$Path' setting SqlCredential must contain non-empty UserName and Password values when UseIntegratedSecurity = `$false."
+        }
+
+        return @{
+            UserName = [string]$SqlCredential['UserName']
+            Password = [string]$SqlCredential['Password']
+        }
+    }
+
+    throw "Config file '$Path' setting SqlCredential must be a PSCredential or a hashtable with UserName and Password when UseIntegratedSecurity = `$false."
+}
+
 function Import-ToastConfig {
     [CmdletBinding()]
     param(
@@ -45,7 +77,11 @@ function Import-ToastConfig {
     }
 
     if ($config.ContainsKey('UseIntegratedSecurity') -and -not $config['UseIntegratedSecurity']) {
-        throw "Config file '$Path' sets UseIntegratedSecurity = `$false. These scripts load only static PSD1 data, so they require integrated security instead of runtime SQL credentials."
+        if (-not $config.ContainsKey('SqlCredential') -or $null -eq $config['SqlCredential']) {
+            throw "Config file '$Path' sets UseIntegratedSecurity = `$false, so SqlCredential must be provided as a PSCredential or as a static hashtable with UserName and Password."
+        }
+
+        [void](Get-ToastSqlCredentialValues -SqlCredential $config['SqlCredential'] -Path $Path)
     }
 
     if ($ResolveClientName) {
@@ -77,13 +113,26 @@ function Test-ToastSqlPort {
 
 function Get-ToastConnectionString {
     param([hashtable]$Config)
-    $server = "tcp:$($Config.SqlServer),$($Config.SqlPort)"
-    $encrypt = if ($Config.Encrypt) { 'True' } else { 'False' }
-    $trust = if ($Config.TrustServerCertificate) { 'True' } else { 'False' }
+    $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+    $builder['Data Source'] = "tcp:$($Config.SqlServer),$($Config.SqlPort)"
+    $builder['Initial Catalog'] = $Config.SqlDatabase
+    $builder['Encrypt'] = [bool]$Config.Encrypt
+    $builder['TrustServerCertificate'] = [bool]$Config.TrustServerCertificate
+    $builder['Connect Timeout'] = [int]$Config.CommandTimeoutSeconds
+
     if ($Config.UseIntegratedSecurity) {
-        return "Server=$server;Database=$($Config.SqlDatabase);Integrated Security=True;Encrypt=$encrypt;TrustServerCertificate=$trust;Connect Timeout=$($Config.CommandTimeoutSeconds);"
+        $builder['Integrated Security'] = $true
+        return $builder.ConnectionString
     }
-    return "Server=$server;Database=$($Config.SqlDatabase);User ID=;Password=;Encrypt=$encrypt;TrustServerCertificate=$trust;Connect Timeout=$($Config.CommandTimeoutSeconds);"
+
+    if (-not $Config.ContainsKey('SqlCredential') -or $null -eq $Config['SqlCredential']) {
+        throw "Config setting SqlCredential is required when UseIntegratedSecurity = `$false."
+    }
+
+    $credential = Get-ToastSqlCredentialValues -SqlCredential $Config['SqlCredential']
+    $builder['User ID'] = $credential.UserName
+    $builder['Password'] = $credential.Password
+    return $builder.ConnectionString
 }
 
 function Invoke-ToastSql {
