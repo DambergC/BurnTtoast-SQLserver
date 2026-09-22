@@ -164,6 +164,7 @@ BEGIN
     DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName);
     IF @ClientId IS NULL RETURN;
     IF @LeaseId IS NULL THROW 50005, 'LeaseId is required when recording a toast delivery.', 1;
+    IF @Status NOT IN ('Delivered','Failed','Cancelled') THROW 50007, 'Status must be Delivered, Failed, or Cancelled.', 1;
 
     DECLARE @Now datetime2(0) = SYSUTCDATETIME();
     DECLARE @RepeatIntervalSeconds int;

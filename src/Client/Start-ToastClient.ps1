@@ -68,6 +68,11 @@ function Invoke-ToastDeliveryRecord {
         Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters $params -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
     }
 }
+function Test-ToastDeliveryRetryableError {
+    param([string]$ErrorMessage)
+
+    return $ErrorMessage -notlike '*lease was not found or is no longer active*'
+}
 function Invoke-Registration {
     $sql="IF NOT EXISTS(SELECT 1 FROM dbo.ToastClient WHERE ComputerName=@ComputerName) INSERT dbo.ToastClient(ComputerName) VALUES(@ComputerName); DECLARE @ClientId int=(SELECT ClientId FROM dbo.ToastClient WHERE ComputerName=@ComputerName); MERGE dbo.ToastGroup AS t USING (SELECT @GroupName GroupName) s ON t.GroupName=s.GroupName WHEN NOT MATCHED THEN INSERT(GroupName) VALUES(s.GroupName); INSERT dbo.ToastClientGroup(ClientId,GroupId) SELECT @ClientId,GroupId FROM dbo.ToastGroup g WHERE g.GroupName=@GroupName AND NOT EXISTS(SELECT 1 FROM dbo.ToastClientGroup x WHERE x.ClientId=@ClientId AND x.GroupId=g.GroupId);"
     foreach($g in $config.ClientGroups){Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters @{ComputerName=$computer;GroupName=$g} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery}
@@ -106,8 +111,12 @@ function Invoke-Poll {
         try {
             Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status 'Delivered' -LeaseId $row.LeaseId -RetryOnce
         } catch {
-            $script:displayedToastOccurrences[$occurrenceKey] = [datetime]::UtcNow
-            Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $($_.Exception.Message)"
+            $deliveryErrorMessage = $_.Exception.Message
+            if (Test-ToastDeliveryRetryableError -ErrorMessage $deliveryErrorMessage) {
+                $script:displayedToastOccurrences[$occurrenceKey] = [datetime]::UtcNow
+            }
+
+            Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $deliveryErrorMessage"
             continue
         }
 
