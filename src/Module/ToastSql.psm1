@@ -549,14 +549,14 @@ function Get-ToastNotificationParameters {
 
             if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
                 if ($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) {
+                    $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType ([string]$imageContentType)
+                    if ($null -eq $normalizedContentType) {
+                        throw "Unsupported $($mapping.ParameterName) content type '$imageContentType'. Supported content types are: $($script:ToastSupportedImageContentTypes.Keys -join ', ')."
+                    }
+
+                    Test-ToastImageSize -ImageBytes $imageBytes -ParameterName $mapping.ParameterName
                     $temporaryImagePath = $null
                     try {
-                        $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType ([string]$imageContentType)
-                        if ($null -eq $normalizedContentType) {
-                            throw "Unsupported $($mapping.ParameterName) content type '$imageContentType'. Supported content types are: $($script:ToastSupportedImageContentTypes.Keys -join ', ')."
-                        }
-
-                        Test-ToastImageSize -ImageBytes $imageBytes -ParameterName $mapping.ParameterName
                         $temporaryImagePath = Join-Path (Get-ToastTemporaryImageDirectory) "$($script:ToastTemporaryFilePrefix)$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
                         [System.IO.File]::WriteAllBytes($temporaryImagePath, $imageBytes)
                         $temporaryFiles.Add($temporaryImagePath)
