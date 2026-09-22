@@ -66,6 +66,132 @@ function ConvertTo-ToastPositiveInt {
     return $normalizedValue
 }
 
+function Resolve-ToastRepeatSettings {
+    [CmdletBinding()]
+    param(
+        [Nullable[int]]$RepeatIntervalSeconds,
+        [Nullable[int]]$RepeatIntervalMinutes,
+        [Nullable[int]]$RepeatCount
+    )
+
+    $hasSeconds = $PSBoundParameters.ContainsKey('RepeatIntervalSeconds') -and $null -ne $RepeatIntervalSeconds
+    $hasMinutes = $PSBoundParameters.ContainsKey('RepeatIntervalMinutes') -and $null -ne $RepeatIntervalMinutes
+    $hasCount = $PSBoundParameters.ContainsKey('RepeatCount') -and $null -ne $RepeatCount
+
+    if ($hasSeconds -and $hasMinutes) {
+        throw 'Specify either RepeatIntervalSeconds or RepeatIntervalMinutes, not both.'
+    }
+
+    if (($hasSeconds -or $hasMinutes) -and -not $hasCount) {
+        throw 'RepeatCount is required when a repeat interval is specified.'
+    }
+
+    if ($hasCount -and -not ($hasSeconds -or $hasMinutes)) {
+        throw 'RepeatIntervalSeconds or RepeatIntervalMinutes is required when RepeatCount is specified.'
+    }
+
+    if (-not $hasCount) {
+        return @{
+            RepeatIntervalSeconds = $null
+            RepeatCount = $null
+        }
+    }
+
+    $normalizedRepeatCount = ConvertTo-ToastPositiveInt -Value $RepeatCount -SettingName 'RepeatCount'
+    if ($normalizedRepeatCount -lt 2) {
+        throw 'RepeatCount must be 2 or greater because it includes the first display. Omit repeat settings for a one-time toast.'
+    }
+
+    if ($hasSeconds) {
+        $normalizedRepeatIntervalSeconds = ConvertTo-ToastPositiveInt -Value $RepeatIntervalSeconds -SettingName 'RepeatIntervalSeconds'
+    } else {
+        $normalizedRepeatIntervalMinutes = ConvertTo-ToastPositiveInt -Value $RepeatIntervalMinutes -SettingName 'RepeatIntervalMinutes'
+        if ($normalizedRepeatIntervalMinutes -gt [math]::Floor([int]::MaxValue / 60)) {
+            throw 'RepeatIntervalMinutes is too large.'
+        }
+
+        $normalizedRepeatIntervalSeconds = $normalizedRepeatIntervalMinutes * 60
+    }
+
+    return @{
+        RepeatIntervalSeconds = $normalizedRepeatIntervalSeconds
+        RepeatCount = $normalizedRepeatCount
+    }
+}
+
+function Get-ToastObjectPropertyValue {
+    param(
+        [Parameter(Mandatory)]$InputObject,
+        [Parameter(Mandatory)][string]$PropertyName
+    )
+
+    if ($InputObject -is [System.Data.DataRow]) {
+        if ($InputObject.Table.Columns.Contains($PropertyName)) {
+            return $InputObject[$PropertyName]
+        }
+
+        return $null
+    }
+
+    $property = $InputObject.PSObject.Properties[$PropertyName]
+    if ($null -ne $property) {
+        return $property.Value
+    }
+
+    return $null
+}
+
+function Get-ToastNotificationParameters {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$ToastRow,
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent')
+    )
+
+    $supportedParameterLookup = @{}
+    foreach ($parameterName in $SupportedParameters) {
+        $supportedParameterLookup[$parameterName] = $true
+    }
+
+    $parameters = @{
+        Text = @(
+            [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Title'),
+            [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Body')
+        )
+    }
+
+    $warnings = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($mapping in @(
+        @{ PropertyName = 'AppLogoPath'; ParameterName = 'AppLogo' },
+        @{ PropertyName = 'HeroImagePath'; ParameterName = 'HeroImage' },
+        @{ PropertyName = 'Sound'; ParameterName = 'Sound' }
+    )) {
+        $value = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.PropertyName
+        if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+            if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
+                $parameters[$mapping.ParameterName] = [string]$value
+            } else {
+                $warnings.Add("Installed BurntToast does not support parameter '$($mapping.ParameterName)'. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without it.")
+            }
+        }
+    }
+
+    $isUrgent = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'IsUrgent'
+    if ($isUrgent -eq $true -or $isUrgent -eq 1) {
+        if ($supportedParameterLookup.ContainsKey('Urgent')) {
+            $parameters['Urgent'] = $true
+        } else {
+            $warnings.Add("Installed BurntToast does not support parameter 'Urgent'. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without urgent behavior.")
+        }
+    }
+
+    return [pscustomobject]@{
+        Parameters = $parameters
+        Warnings = $warnings.ToArray()
+    }
+}
+
 function Get-ToastSqlCredential {
     param([hashtable]$Config)
 
@@ -242,4 +368,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters

@@ -19,15 +19,22 @@ function Invoke-Registration {
 if($Register){Invoke-Registration;Write-Output "Registered $computer";if($Once){return}}
 function Invoke-Poll {
     $rows=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_GetPendingToast @ComputerName' -Parameters @{ComputerName=$computer} -CommandTimeoutSeconds $config.CommandTimeoutSeconds
+    $toastCommand = Get-Command New-BurntToastNotification -ErrorAction Stop
+    $supportedParameters = $toastCommand.Parameters.Keys
     foreach($row in $rows){
         try{
-            New-BurntToastNotification -Text @($row.Title,$row.Body)
-            Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
+            $toastDetails = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters $supportedParameters
+            foreach ($warning in $toastDetails.Warnings) {
+                Write-Warning $warning
+            }
+
+            New-BurntToastNotification @toastDetails.Parameters
+            Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null;LeaseId=[string]$row.LeaseId} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
         }catch{
             $toastErrorRecord = $_
             $toastErrorMessage = $toastErrorRecord.Exception.Message
             try {
-                Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Failed';ErrorMessage=$toastErrorMessage} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
+                Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Failed';ErrorMessage=$toastErrorMessage;LeaseId=[string]$row.LeaseId} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
             } catch {
                 throw $toastErrorRecord
             }

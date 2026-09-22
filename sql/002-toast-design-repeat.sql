@@ -1,0 +1,220 @@
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+IF COL_LENGTH('dbo.ToastMessage', 'AppLogoPath') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD AppLogoPath nvarchar(1024) NULL;
+
+IF COL_LENGTH('dbo.ToastMessage', 'HeroImagePath') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD HeroImagePath nvarchar(1024) NULL;
+
+IF COL_LENGTH('dbo.ToastMessage', 'Sound') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD Sound varchar(20) NULL;
+
+IF COL_LENGTH('dbo.ToastMessage', 'IsUrgent') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD IsUrgent bit NOT NULL CONSTRAINT DF_ToastMessage_IsUrgent DEFAULT (0) WITH VALUES;
+
+IF COL_LENGTH('dbo.ToastMessage', 'RepeatIntervalSeconds') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD RepeatIntervalSeconds int NULL;
+
+IF COL_LENGTH('dbo.ToastMessage', 'RepeatCount') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD RepeatCount int NULL;
+
+IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
+    ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSUTCDATETIME()) WITH VALUES;
+
+IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL
+    ALTER TABLE dbo.ToastDelivery ADD ShowCount int NOT NULL CONSTRAINT DF_ToastDelivery_ShowCount DEFAULT (0) WITH VALUES;
+
+IF COL_LENGTH('dbo.ToastDelivery', 'LeaseId') IS NULL
+    ALTER TABLE dbo.ToastDelivery ADD LeaseId uniqueidentifier NULL;
+
+IF COL_LENGTH('dbo.ToastDelivery', 'LeaseExpiresUtc') IS NULL
+    ALTER TABLE dbo.ToastDelivery ADD LeaseExpiresUtc datetime2(0) NULL;
+
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_ToastDelivery_Status' AND parent_object_id = OBJECT_ID('dbo.ToastDelivery'))
+    ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT CK_ToastDelivery_Status;
+
+ALTER TABLE dbo.ToastDelivery
+    ADD CONSTRAINT CK_ToastDelivery_Status CHECK (Status IN ('Pending','InProgress','Delivered','Failed','Cancelled'));
+
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastDelivery') AND name = 'IX_ToastDelivery_Client_Status')
+    DROP INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery;
+
+CREATE INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery(ClientId, Status, NextShowUtc, LeaseExpiresUtc, MessageId);
+
+GO
+CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
+    @GroupName nvarchar(128),
+    @Title nvarchar(200),
+    @Body nvarchar(4000),
+    @ExpiresUtc datetime2(0) = NULL,
+    @AppLogoPath nvarchar(1024) = NULL,
+    @HeroImagePath nvarchar(1024) = NULL,
+    @Sound varchar(20) = NULL,
+    @IsUrgent bit = 0,
+    @RepeatIntervalSeconds int = NULL,
+    @RepeatCount int = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF (@RepeatIntervalSeconds IS NULL AND @RepeatCount IS NOT NULL) OR (@RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NULL)
+        THROW 50002, 'RepeatIntervalSeconds and RepeatCount must both be provided for repeating messages.', 1;
+
+    IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatIntervalSeconds < 1
+        THROW 50003, 'RepeatIntervalSeconds must be greater than zero.', 1;
+
+    IF @RepeatCount IS NOT NULL AND @RepeatCount < 2
+        THROW 50004, 'RepeatCount must be 2 or greater because it includes the first display.', 1;
+
+    DECLARE @GroupId int = (SELECT GroupId FROM dbo.ToastGroup WHERE GroupName = @GroupName AND IsActive = 1);
+    IF @GroupId IS NULL THROW 50001, 'Active toast group was not found.', 1;
+
+    BEGIN TRAN;
+
+    INSERT dbo.ToastMessage(GroupId, Title, Body, ExpiresUtc, AppLogoPath, HeroImagePath, Sound, IsUrgent, RepeatIntervalSeconds, RepeatCount)
+    VALUES(@GroupId, @Title, @Body, @ExpiresUtc, NULLIF(@AppLogoPath, ''), NULLIF(@HeroImagePath, ''), NULLIF(@Sound, ''), ISNULL(@IsUrgent, 0), @RepeatIntervalSeconds, @RepeatCount);
+
+    DECLARE @MessageId bigint = SCOPE_IDENTITY();
+
+    INSERT dbo.ToastDelivery(MessageId, ClientId)
+        SELECT @MessageId, ClientId
+        FROM dbo.ToastClientGroup
+        WHERE GroupId = @GroupId;
+
+    COMMIT;
+
+    SELECT @MessageId AS MessageId;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_GetPendingToast
+    @ComputerName nvarchar(256)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName AND IsActive = 1);
+    IF @ClientId IS NULL RETURN;
+
+    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @LeaseSeconds int = 120;
+
+    UPDATE dbo.ToastClient
+    SET LastSeenUtc = @Now
+    WHERE ClientId = @ClientId;
+
+    ;WITH DueMessages AS (
+        SELECT TOP (20) d.MessageId
+        FROM dbo.ToastDelivery d WITH (UPDLOCK, READPAST, ROWLOCK)
+        INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
+        WHERE d.ClientId = @ClientId
+          AND m.IsCancelled = 0
+          AND (m.ExpiresUtc IS NULL OR m.ExpiresUtc > @Now)
+          AND d.NextShowUtc <= @Now
+          AND (
+                d.Status = 'Pending'
+                OR (d.Status = 'InProgress' AND d.LeaseExpiresUtc IS NOT NULL AND d.LeaseExpiresUtc <= @Now)
+              )
+        ORDER BY d.MessageId
+    )
+    UPDATE d
+    SET Status = 'InProgress',
+        LeaseId = NEWID(),
+        LeaseExpiresUtc = DATEADD(second, @LeaseSeconds, @Now),
+        ErrorMessage = NULL
+    OUTPUT inserted.MessageId,
+           inserted.LeaseId,
+           m.Title,
+           m.Body,
+           m.AppLogoPath,
+           m.HeroImagePath,
+           m.Sound,
+           m.IsUrgent,
+           m.RepeatIntervalSeconds,
+           m.RepeatCount,
+           m.ExpiresUtc,
+           inserted.ShowCount
+    FROM dbo.ToastDelivery d
+    INNER JOIN DueMessages x ON x.MessageId = d.MessageId
+    INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
+    WHERE d.ClientId = @ClientId;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.usp_RecordToastDelivery
+    @ComputerName nvarchar(256),
+    @MessageId bigint,
+    @Status varchar(20),
+    @ErrorMessage nvarchar(2000) = NULL,
+    @LeaseId uniqueidentifier = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName);
+    IF @ClientId IS NULL RETURN;
+
+    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @RepeatIntervalSeconds int;
+    DECLARE @RepeatCount int;
+    DECLARE @ExpiresUtc datetime2(0);
+    DECLARE @ShowCount int;
+
+    SELECT
+        @RepeatIntervalSeconds = m.RepeatIntervalSeconds,
+        @RepeatCount = m.RepeatCount,
+        @ExpiresUtc = m.ExpiresUtc,
+        @ShowCount = d.ShowCount
+    FROM dbo.ToastDelivery d
+    INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
+    WHERE d.MessageId = @MessageId
+      AND d.ClientId = @ClientId
+      AND (@LeaseId IS NULL OR d.LeaseId = @LeaseId);
+
+    IF @ShowCount IS NULL RETURN;
+
+    IF @Status = 'Delivered'
+    BEGIN
+        DECLARE @NewShowCount int = @ShowCount + 1;
+        DECLARE @NextShowUtc datetime2(0) = NULL;
+
+        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NewShowCount < @RepeatCount
+        BEGIN
+            SET @NextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
+
+            IF @ExpiresUtc IS NOT NULL AND @NextShowUtc >= @ExpiresUtc
+                SET @NextShowUtc = NULL;
+        END
+
+        UPDATE dbo.ToastDelivery
+        SET Status = CASE WHEN @NextShowUtc IS NULL THEN 'Delivered' ELSE 'Pending' END,
+            Attempts = Attempts + 1,
+            ShowCount = @NewShowCount,
+            LastAttemptUtc = @Now,
+            DeliveredUtc = @Now,
+            NextShowUtc = CASE WHEN @NextShowUtc IS NULL THEN @Now ELSE @NextShowUtc END,
+            ErrorMessage = NULL,
+            LeaseId = NULL,
+            LeaseExpiresUtc = NULL
+        WHERE MessageId = @MessageId
+          AND ClientId = @ClientId
+          AND (@LeaseId IS NULL OR LeaseId = @LeaseId);
+
+        RETURN;
+    END
+
+    UPDATE dbo.ToastDelivery
+    SET Status = @Status,
+        Attempts = Attempts + 1,
+        LastAttemptUtc = @Now,
+        ErrorMessage = @ErrorMessage,
+        LeaseId = NULL,
+        LeaseExpiresUtc = NULL
+    WHERE MessageId = @MessageId
+      AND ClientId = @ClientId
+      AND (@LeaseId IS NULL OR LeaseId = @LeaseId);
+END;

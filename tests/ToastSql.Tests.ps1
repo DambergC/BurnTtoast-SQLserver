@@ -41,6 +41,80 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'repeat settings' {
+        It 'keeps one-time messages unchanged when repeat settings are omitted' {
+            $result = Resolve-ToastRepeatSettings
+
+            $result.RepeatIntervalSeconds | Should -Be $null
+            $result.RepeatCount | Should -Be $null
+        }
+
+        It 'normalizes minute-based repeats to seconds' {
+            $result = Resolve-ToastRepeatSettings -RepeatIntervalMinutes 5 -RepeatCount 3
+
+            $result.RepeatIntervalSeconds | Should -Be 300
+            $result.RepeatCount | Should -Be 3
+        }
+
+        It 'rejects repeat counts without an interval' {
+            { Resolve-ToastRepeatSettings -RepeatCount 2 } | Should -Throw '*RepeatIntervalSeconds or RepeatIntervalMinutes is required*'
+        }
+
+        It 'rejects interval-based repeats without a repeat count' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 } | Should -Throw '*RepeatCount is required*'
+        }
+
+        It 'rejects repeat counts smaller than two' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 -RepeatCount 1 } | Should -Throw '*RepeatCount must be 2 or greater*'
+        }
+
+        It 'rejects multiple repeat interval units at the same time' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 -RepeatIntervalMinutes 1 -RepeatCount 2 } | Should -Throw '*either RepeatIntervalSeconds or RepeatIntervalMinutes*'
+        }
+    }
+
+    Context 'toast notification parameter building' {
+        It 'builds BurntToast parameters from optional toast metadata' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                HeroImagePath = 'C:\Toast\hero.png'
+                Sound = 'Reminder'
+                IsUrgent = $true
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            $result.Warnings.Count | Should -Be 0
+            $result.Parameters.Text | Should -Be @('Title','Body')
+            $result.Parameters.AppLogo | Should -Be 'C:\Toast\logo.png'
+            $result.Parameters.HeroImage | Should -Be 'C:\Toast\hero.png'
+            $result.Parameters.Sound | Should -Be 'Reminder'
+            $result.Parameters.Urgent | Should -BeTrue
+        }
+
+        It 'skips unsupported optional BurntToast parameters with a warning' {
+            $row = [pscustomobject]@{
+                MessageId = 7
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                HeroImagePath = $null
+                Sound = ''
+                IsUrgent = $true
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
+
+            @($result.Parameters.Keys) | Should -Be @('Text')
+            $result.Warnings.Count | Should -Be 2
+            $result.Warnings[0] | Should -Match "AppLogo"
+            $result.Warnings[1] | Should -Match "Urgent"
+        }
+    }
+
     Context 'config loading' {
         BeforeAll {
             $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
