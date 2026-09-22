@@ -327,6 +327,38 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'warns and skips button creation when New-BTButton is unavailable' {
+            InModuleScope ToastSql {
+                function Get-Command {
+                    param([string]$Name)
+                    if ($Name -eq 'New-BTButton') {
+                        return $null
+                    }
+
+                    return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 273
+                        Title = 'Missing command title'
+                        Body = 'Missing command body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.test/missing-command'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
+                    $result.Warnings.Count | Should -Be 1
+                    $result.Warnings[0] | Should -Match 'without a button'
+                } finally {
+                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
             InModuleScope ToastSql {
                 $global:ToastWarnings = @()

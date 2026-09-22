@@ -65,6 +65,10 @@ BEGIN
         OR SUBSTRING(@ButtonArguments, 1, 1) NOT LIKE '[A-Za-z]'
         OR PATINDEX('%[^A-Za-z0-9+.-]%', LEFT(@ButtonArguments, @ButtonUriSchemeSeparator - 1)) > 0
         OR (@ButtonUriScheme IN ('http','https','ftp','file','ws','wss') AND @ButtonArguments NOT LIKE @ButtonUriScheme + '://%')
+        OR (@ButtonUriScheme IN ('http','https','ftp','ws','wss') AND (
+                LEN(@ButtonArguments) <= @ButtonUriSchemeSeparator + 3
+                OR SUBSTRING(@ButtonArguments, @ButtonUriSchemeSeparator + 3, 1) IN ('/','?','#')
+            ))
     )
         THROW 50012, 'ButtonArguments must look like a valid absolute URI when ButtonActivationType is Protocol.', 1;
 

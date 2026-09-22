@@ -252,7 +252,9 @@ function Get-ToastNotificationParameters {
     $buttonArguments = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonArguments'
     $buttonActivationType = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonActivationType'
     if (-not [string]::IsNullOrWhiteSpace([string]$buttonText)) {
-        if ($supportedParameterLookup.ContainsKey('Button')) {
+        $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
+        $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
+        if ($supportedParameterLookup.ContainsKey('Button') -and $hasButtonCommand) {
             $newButtonParameters = @{
                 Content = [string]$buttonText
                 ActivationType = if ([string]::IsNullOrWhiteSpace([string]$buttonActivationType)) { 'Protocol' } else { [string]$buttonActivationType }
