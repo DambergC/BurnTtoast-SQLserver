@@ -369,4 +369,15 @@ Describe 'ToastSql module' {
             $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
         }
     }
+
+    Context 'local-time reporting SQL compatibility' {
+        It 'keeps @TimeZoneName parameters but does not perform UTC timezone conversion' {
+            $scriptPath = Join-Path $PSScriptRoot '..\sql\004-local-time-reporting.sql'
+            $scriptText = Get-Content -Path $scriptPath -Raw
+
+            $scriptText | Should -Match 'ufn_ToastMessageLocal\s*\r?\n\(\r?\n\s*@TimeZoneName sysname = NULL'
+            $scriptText | Should -Match 'ufn_ToastDeliveryLocal\s*\r?\n\(\r?\n\s*@TimeZoneName sysname = NULL'
+            $scriptText | Should -Not -Match "AT TIME ZONE ''UTC''"
+        }
+    }
 }

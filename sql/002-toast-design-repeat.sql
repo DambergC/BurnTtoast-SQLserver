@@ -51,8 +51,15 @@ BEGIN
     IF @NextShowUtcDefaultConstraintName IS NOT NULL
         EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
 
-    ALTER TABLE dbo.ToastDelivery
-        ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints dc
+        INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
+          AND c.name = 'NextShowUtc'
+    )
+        ALTER TABLE dbo.ToastDelivery
+            ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
 END;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL

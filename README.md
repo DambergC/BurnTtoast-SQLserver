@@ -125,6 +125,7 @@ Dismiss-knapp:
 
 Ny schemaläggning och procedurernas lease-/leveransstatus använder serverns lokala tid (`NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
 Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och betyder inte längre att nya värden alltid är UTC.
+Vid uppgradering kan äldre rader i `DeliveredUtc`, `LastAttemptUtc` och `LastSeenUtc` fortfarande vara UTC om de skapades innan denna ändring.
 
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
