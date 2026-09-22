@@ -225,7 +225,7 @@ function Get-ToastNotificationSupportedParameters {
     )
 
     $command = Get-Command $CommandName -ErrorAction Stop
-    return @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Contains($_) })
+    return @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
 }
 
 function Get-ToastSqlCredential {
