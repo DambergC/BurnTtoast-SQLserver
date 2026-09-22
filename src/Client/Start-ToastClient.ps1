@@ -13,6 +13,7 @@ $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
 $computer=$config.ClientName
 $deliveryAckRetryDelayMilliseconds = 250
+$displayedToastOccurrenceRetentionMinutes = 60
 $displayedToastOccurrences = @{}
 $supportedToastParameters = $null
 function Get-SupportedToastParameters {
@@ -29,6 +30,14 @@ function Get-ToastOccurrenceKey {
     )
 
     return "${MessageId}:${ShowCount}"
+}
+function Clear-StaleDisplayedToastOccurrences {
+    $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$displayedToastOccurrenceRetentionMinutes)
+    foreach ($key in @($script:displayedToastOccurrences.Keys)) {
+        if ($script:displayedToastOccurrences[$key] -lt $cutoffUtc) {
+            [void]$script:displayedToastOccurrences.Remove($key)
+        }
+    }
 }
 function Invoke-ToastDeliveryRecord {
     param(
@@ -65,6 +74,7 @@ function Invoke-Registration {
 }
 if($Register){Invoke-Registration;Write-Output "Registered $computer";if($Once){return}}
 function Invoke-Poll {
+    Clear-StaleDisplayedToastOccurrences
     $rows=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_GetPendingToast @ComputerName' -Parameters @{ComputerName=$computer} -CommandTimeoutSeconds $config.CommandTimeoutSeconds
     foreach($row in $rows){
         $occurrenceKey = Get-ToastOccurrenceKey -MessageId $row.MessageId -ShowCount $row.ShowCount
@@ -95,7 +105,7 @@ function Invoke-Poll {
         try {
             Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status Delivered -LeaseId $row.LeaseId -RetryOnce
         } catch {
-            $script:displayedToastOccurrences[$occurrenceKey] = $true
+            $script:displayedToastOccurrences[$occurrenceKey] = [datetime]::UtcNow
             Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $($_.Exception.Message)"
             continue
         }
