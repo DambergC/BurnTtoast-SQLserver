@@ -5,11 +5,13 @@ Describe 'ToastSql module' {
         Get-ToastConnectionString $c | Should -Match 'tcp:sql01,1433'
     }
     It 'rejects an unreachable SQL port' {
-        function global:Test-NetConnection { $false }
-        try {
-            { Test-ToastSqlPort -Server 'invalid.example' -Port 1433 } | Should -Throw
-        } finally {
-            Remove-Item Function:\Test-NetConnection -ErrorAction SilentlyContinue
+        InModuleScope ToastSql {
+            function Test-NetConnection { $false }
+            try {
+                { Test-ToastSqlPort -Server 'invalid.example' -Port 1433 } | Should -Throw
+            } finally {
+                Remove-Item Function:\Test-NetConnection -ErrorAction SilentlyContinue
+            }
         }
     }
 
