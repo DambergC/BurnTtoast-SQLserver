@@ -219,7 +219,7 @@ function Resolve-ToastQueueResult {
     }
 
     $resolvedMessageId = Get-ToastObjectPropertyValue -InputObject $rows[0] -PropertyName 'MessageId'
-    if ($null -eq $resolvedMessageId) {
+    if ($null -eq $resolvedMessageId -or $resolvedMessageId -is [System.DBNull]) {
         throw 'Queue toast message SQL result contained a null MessageId value.'
     }
 

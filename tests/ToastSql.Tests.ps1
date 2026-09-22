@@ -168,6 +168,10 @@ Describe 'ToastSql module' {
 
             { Resolve-ToastQueueResult -Result $table } | Should -Throw '*must include a MessageId column*'
         }
+
+        It 'throws a clear error when MessageId is null-like' {
+            { Resolve-ToastQueueResult -Result ([pscustomobject]@{ MessageId = [DBNull]::Value }) } | Should -Throw '*null MessageId*'
+        }
     }
 
     Context 'toast notification parameter building' {
