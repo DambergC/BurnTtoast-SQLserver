@@ -71,6 +71,10 @@ Describe 'ToastSql module' {
         It 'rejects multiple repeat interval units at the same time' {
             { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 -RepeatIntervalMinutes 1 -RepeatCount 2 } | Should -Throw '*either RepeatIntervalSeconds or RepeatIntervalMinutes*'
         }
+
+        It 'rejects oversized repeat intervals in minutes' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalMinutes 35791395 -RepeatCount 2 } | Should -Throw '*RepeatIntervalMinutes is too large*'
+        }
     }
 
     Context 'toast notification parameter building' {

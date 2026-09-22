@@ -165,6 +165,7 @@ BEGIN
     DECLARE @RepeatCount int;
     DECLARE @ExpiresUtc datetime2(0);
     DECLARE @ShowCount int;
+    DECLARE @FailureNextShowUtc datetime2(0);
 
     SELECT
         @RepeatIntervalSeconds = m.RepeatIntervalSeconds,
@@ -211,10 +212,16 @@ BEGIN
         RETURN;
     END
 
+    IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND (@ShowCount + 1) < @RepeatCount
+        SET @FailureNextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
+    ELSE
+        SET @FailureNextShowUtc = @Now;
+
     UPDATE dbo.ToastDelivery
     SET Status = @Status,
         Attempts = Attempts + 1,
         LastAttemptUtc = @Now,
+        NextShowUtc = @FailureNextShowUtc,
         ErrorMessage = @ErrorMessage,
         LeaseId = NULL,
         LeaseExpiresUtc = NULL
