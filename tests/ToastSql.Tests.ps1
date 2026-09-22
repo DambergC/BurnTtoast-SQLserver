@@ -12,6 +12,10 @@ Describe 'ToastSql module' {
         $builder['User ID'] | Should -Be 'toastuser'
         $builder['Password'] | Should -Be 'toastpass'
     }
+    It 'rejects non-boolean connection flags when building a connection string' {
+        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt='false';TrustServerCertificate=$false;CommandTimeoutSeconds=15}
+        { Get-ToastConnectionString $c } | Should -Throw '*Config setting Encrypt must be $true or $false*'
+    }
     It 'rejects an unreachable SQL port' {
         InModuleScope ToastSql {
             function Test-NetConnection { $false }

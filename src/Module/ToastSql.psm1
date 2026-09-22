@@ -123,11 +123,17 @@ function Test-ToastSqlPort {
 
 function Get-ToastConnectionString {
     param([hashtable]$Config)
+    foreach ($booleanSetting in @('UseIntegratedSecurity','Encrypt','TrustServerCertificate')) {
+        if ($Config[$booleanSetting] -isnot [bool]) {
+            throw "Config setting $booleanSetting must be `$true or `$false."
+        }
+    }
+
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
     $builder['Data Source'] = "tcp:$($Config.SqlServer),$($Config.SqlPort)"
     $builder['Initial Catalog'] = $Config.SqlDatabase
-    $builder['Encrypt'] = [bool]$Config.Encrypt
-    $builder['TrustServerCertificate'] = [bool]$Config.TrustServerCertificate
+    $builder['Encrypt'] = $Config.Encrypt
+    $builder['TrustServerCertificate'] = $Config.TrustServerCertificate
 
     if ($Config.UseIntegratedSecurity) {
         $builder['Integrated Security'] = $true
