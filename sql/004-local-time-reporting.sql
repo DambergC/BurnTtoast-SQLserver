@@ -7,7 +7,8 @@ DECLARE @EscapedDefaultLocalTimeZone nvarchar(256) = REPLACE(@DefaultLocalTimeZo
 DECLARE @Sql1 nvarchar(max) = N'
 CREATE OR ALTER FUNCTION dbo.ufn_ToastMessageLocal
 (
-    @TimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N'''
+    @TimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N''',
+    @ServerTimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N'''
 )
 RETURNS TABLE
 AS
@@ -22,15 +23,16 @@ RETURN
         m.ExpiresUtc,
         m.CreatedUtc AS CreatedServerLocalTime,
         m.ExpiresUtc AS ExpiresServerLocalTime,
-        m.CreatedUtc AT TIME ZONE @TimeZoneName AS CreatedLocalTime,
-        m.ExpiresUtc AT TIME ZONE @TimeZoneName AS ExpiresLocalTime
+        (m.CreatedUtc AT TIME ZONE @ServerTimeZoneName) AT TIME ZONE @TimeZoneName AS CreatedLocalTime,
+        (m.ExpiresUtc AT TIME ZONE @ServerTimeZoneName) AT TIME ZONE @TimeZoneName AS ExpiresLocalTime
     FROM dbo.ToastMessage m
 );';
 
 DECLARE @Sql2 nvarchar(max) = N'
 CREATE OR ALTER FUNCTION dbo.ufn_ToastDeliveryLocal
 (
-    @TimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N'''
+    @TimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N''',
+    @ServerTimeZoneName sysname = N''' + @EscapedDefaultLocalTimeZone + N'''
 )
 RETURNS TABLE
 AS
@@ -47,9 +49,9 @@ RETURN
         d.LastAttemptUtc AS LastAttemptServerLocalTime,
         d.DeliveredUtc AS DeliveredServerLocalTime,
         c.LastSeenUtc AS LastSeenServerLocalTime,
-        d.LastAttemptUtc AT TIME ZONE @TimeZoneName AS LastAttemptLocalTime,
-        d.DeliveredUtc AT TIME ZONE @TimeZoneName AS DeliveredLocalTime,
-        c.LastSeenUtc AT TIME ZONE @TimeZoneName AS LastSeenLocalTime
+        (d.LastAttemptUtc AT TIME ZONE @ServerTimeZoneName) AT TIME ZONE @TimeZoneName AS LastAttemptLocalTime,
+        (d.DeliveredUtc AT TIME ZONE @ServerTimeZoneName) AT TIME ZONE @TimeZoneName AS DeliveredLocalTime,
+        (c.LastSeenUtc AT TIME ZONE @ServerTimeZoneName) AT TIME ZONE @TimeZoneName AS LastSeenLocalTime
     FROM dbo.ToastDelivery d
     INNER JOIN dbo.ToastClient c ON c.ClientId = d.ClientId
 );';
