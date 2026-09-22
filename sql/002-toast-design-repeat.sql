@@ -24,11 +24,27 @@ IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
 ELSE
 BEGIN
     DECLARE @NextShowUtcDefaultConstraintName sysname;
+    DECLARE @NextShowUtcDefaultDefinition nvarchar(max);
     SELECT @NextShowUtcDefaultConstraintName = dc.name
+         , @NextShowUtcDefaultDefinition = dc.definition
     FROM sys.default_constraints dc
     INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
     WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
       AND c.name = 'NextShowUtc';
+
+    IF @NextShowUtcDefaultDefinition LIKE '%SYSUTCDATETIME%'
+    BEGIN
+        DECLARE @UtcToLocalOffsetMinutes int = DATEDIFF(MINUTE, SYSUTCDATETIME(), SYSDATETIME());
+
+        UPDATE dbo.ToastDelivery
+        SET NextShowUtc = DATEADD(MINUTE, @UtcToLocalOffsetMinutes, NextShowUtc),
+            LeaseExpiresUtc = CASE
+                WHEN LeaseExpiresUtc IS NULL THEN NULL
+                ELSE DATEADD(MINUTE, @UtcToLocalOffsetMinutes, LeaseExpiresUtc)
+            END
+        WHERE NextShowUtc IS NOT NULL
+           OR LeaseExpiresUtc IS NOT NULL;
+    END;
 
     IF @NextShowUtcDefaultConstraintName IS NOT NULL
         EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
