@@ -119,6 +119,58 @@ function Resolve-ToastRepeatSettings {
     }
 }
 
+function Resolve-ToastButtonSettings {
+    [CmdletBinding()]
+    param(
+        [string]$ButtonText,
+        [string]$ButtonArguments,
+        [ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
+    )
+
+    $normalizedButtonText = if ([string]::IsNullOrWhiteSpace($ButtonText)) { $null } else { $ButtonText.Trim() }
+    $normalizedButtonArguments = if ([string]::IsNullOrWhiteSpace($ButtonArguments)) { $null } else { $ButtonArguments.Trim() }
+
+    if (($null -eq $normalizedButtonText) -and ($null -ne $normalizedButtonArguments)) {
+        throw 'ButtonText must be specified when ButtonArguments is provided.'
+    }
+
+    if (($null -eq $normalizedButtonText) -and [string]::IsNullOrWhiteSpace($ButtonActivationType)) {
+        return @{
+            ButtonText = $null
+            ButtonArguments = $null
+            ButtonActivationType = $null
+        }
+    }
+
+    if ($null -eq $normalizedButtonText) {
+        throw 'ButtonText is required when ButtonActivationType is specified.'
+    }
+
+    $normalizedButtonActivationType = if ([string]::IsNullOrWhiteSpace($ButtonActivationType)) { 'Protocol' } else { $ButtonActivationType }
+    if ($normalizedButtonActivationType -eq 'Protocol') {
+        if ($null -eq $normalizedButtonArguments) {
+            throw 'ButtonArguments is required when ButtonActivationType is Protocol.'
+        }
+
+        $buttonUri = $null
+        if (
+            -not [System.Uri]::TryCreate($normalizedButtonArguments, [System.UriKind]::Absolute, [ref]$buttonUri) -or
+            [string]::IsNullOrWhiteSpace($buttonUri.Scheme) -or
+            ($normalizedButtonArguments -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*://')
+        ) {
+            throw 'ButtonArguments must be a valid absolute URI when ButtonActivationType is Protocol.'
+        }
+    } elseif ($null -eq $normalizedButtonArguments) {
+        # Dismiss buttons can omit arguments.
+    }
+
+    return @{
+        ButtonText = $normalizedButtonText
+        ButtonArguments = $normalizedButtonArguments
+        ButtonActivationType = $normalizedButtonActivationType
+    }
+}
+
 function Get-ToastObjectPropertyValue {
     param(
         [Parameter(Mandatory)]$InputObject,
@@ -155,7 +207,7 @@ function Get-ToastNotificationParameters {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
     )
 
     $supportedParameterLookup = @{}
@@ -196,6 +248,25 @@ function Get-ToastNotificationParameters {
         }
     }
 
+    $buttonText = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonText'
+    $buttonArguments = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonArguments'
+    $buttonActivationType = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonActivationType'
+    if (-not [string]::IsNullOrWhiteSpace([string]$buttonText)) {
+        if ($supportedParameterLookup.ContainsKey('Button')) {
+            $newButtonParameters = @{
+                Content = [string]$buttonText
+                ActivationType = if ([string]::IsNullOrWhiteSpace([string]$buttonActivationType)) { 'Protocol' } else { [string]$buttonActivationType }
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$buttonArguments)) {
+                $newButtonParameters['Arguments'] = [string]$buttonArguments
+            }
+
+            $parameters['Button'] = @(New-BTButton @newButtonParameters)
+        } else {
+            $warnings.Add("Installed BurntToast does not support button actions. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without a button.")
+        }
+    }
+
     return [pscustomobject]@{
         Parameters = $parameters
         Warnings = $warnings.ToArray()
@@ -206,7 +277,7 @@ function Invoke-ToastNotification {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
     )
 
     $toastDetails = Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
@@ -225,7 +296,12 @@ function Get-ToastNotificationSupportedParameters {
     )
 
     $command = Get-Command $CommandName -ErrorAction Stop
-    return @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
+    $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
+    if (($command.Parameters.Keys -contains 'Button') -and (Get-Command 'New-BTButton' -ErrorAction SilentlyContinue)) {
+        $supportedParameters += 'Button'
+    }
+
+    return $supportedParameters
 }
 
 function Get-ToastSqlCredential {
@@ -450,4 +526,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters

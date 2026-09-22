@@ -11,7 +11,10 @@ param(
  [switch]$Urgent,
  [Nullable[int]]$RepeatIntervalSeconds,
  [Nullable[int]]$RepeatIntervalMinutes,
- [Nullable[int]]$RepeatCount
+ [Nullable[int]]$RepeatCount,
+ [Parameter(HelpMessage='Optional text shown on a single toast action button.')][string]$ButtonText,
+ [Parameter(HelpMessage='Optional button argument, typically an absolute URL or protocol URI.')][string]$ButtonArguments,
+ [Parameter(HelpMessage='Button activation type. Use Protocol to open a URI or Dismiss to close the toast.')][ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
 )
 Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
@@ -20,7 +23,8 @@ Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
 $repeatSettings = Resolve-ToastRepeatSettings -RepeatIntervalSeconds $RepeatIntervalSeconds -RepeatIntervalMinutes $RepeatIntervalMinutes -RepeatCount $RepeatCount
-$sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc,@AppLogoPath,@HeroImagePath,@Sound,@IsUrgent,@RepeatIntervalSeconds,@RepeatCount'
+$buttonSettings = Resolve-ToastButtonSettings -ButtonText $ButtonText -ButtonArguments $ButtonArguments -ButtonActivationType $ButtonActivationType
+$sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc,@AppLogoPath,@HeroImagePath,@Sound,@IsUrgent,@RepeatIntervalSeconds,@RepeatCount,@ButtonText,@ButtonArguments,@ButtonActivationType'
 $params=@{
     GroupName=$GroupName
     Title=$Title
@@ -32,6 +36,9 @@ $params=@{
     IsUrgent=$Urgent.IsPresent
     RepeatIntervalSeconds=$repeatSettings.RepeatIntervalSeconds
     RepeatCount=$repeatSettings.RepeatCount
+    ButtonText=$buttonSettings.ButtonText
+    ButtonArguments=$buttonSettings.ButtonArguments
+    ButtonActivationType=$buttonSettings.ButtonActivationType
 }
 $result=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters $params -CommandTimeoutSeconds $config.CommandTimeoutSeconds
 Write-Output "Queued message $($result.MessageId) for group '$GroupName'."
