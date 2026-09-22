@@ -25,6 +25,7 @@ Toasten skickas alltså inte via SQL eller WinRM. SQL används som kö och statu
 1. Kör `sql/001-schema.sql` i den databas som ska användas.
 2. Ge ett SQL-login eller Windows-grupp minsta nödvändiga rättigheter enligt kommentarerna i SQL-filen.
 3. Kopiera `config/config.example.psd1` till `config/config.psd1` och fyll i server/databas.
+   PSD1-filen måste innehålla statiska värden som stöds av `Import-PowerShellDataFile`; lämna `ClientName = $null` om klienten ska använda det lokala datornamnet automatiskt.
 4. Registrera klienter och grupper med `src/Client/Start-ToastClient.ps1 -Register`.
 5. Köa ett testmeddelande:
 

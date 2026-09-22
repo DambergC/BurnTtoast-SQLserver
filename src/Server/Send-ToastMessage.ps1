@@ -7,8 +7,8 @@ param(
  [datetime]$ExpiresUtc
 )
 Set-StrictMode -Version Latest
-$config=Import-PowerShellDataFile $ConfigPath
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
+$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','Encrypt','TrustServerCertificate','CommandTimeoutSeconds')
 Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
 $sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc'
