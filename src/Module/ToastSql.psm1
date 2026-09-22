@@ -552,8 +552,10 @@ function Get-ToastNotificationParameters {
             $imageBytes = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.BytesPropertyName
             $imageContentType = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.ContentTypePropertyName
 
+            $hasBinaryImage = $imageBytes -is [byte[]]
+
             if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
-                if ($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) {
+                if ($hasBinaryImage) {
                     $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType ([string]$imageContentType)
                     if ($null -eq $normalizedContentType) {
                         throw "Unsupported $($mapping.ParameterName) content type '$imageContentType'. Supported content types are: $($script:ToastSupportedImageContentTypes.Keys -join ', ')."
@@ -576,7 +578,7 @@ function Get-ToastNotificationParameters {
                 } elseif (-not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
                     $value = [string]$pathValue
                 }
-            } elseif (($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) -or -not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
+            } elseif ($hasBinaryImage -or -not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
                 $warnings.Add("Installed BurntToast does not support parameter '$($mapping.ParameterName)'. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without this option.")
             }
         } else {
