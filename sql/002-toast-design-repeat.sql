@@ -166,6 +166,7 @@ BEGIN
     DECLARE @ExpiresUtc datetime2(0);
     DECLARE @ShowCount int;
     DECLARE @FailureNextShowUtc datetime2(0);
+    DECLARE @FailureStatus varchar(20);
 
     SELECT
         @RepeatIntervalSeconds = m.RepeatIntervalSeconds,
@@ -212,13 +213,21 @@ BEGIN
         RETURN;
     END
 
-    IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND (@ShowCount + 1) < @RepeatCount
+    SET @FailureStatus = @Status;
+    SET @FailureNextShowUtc = @Now;
+
+    IF @Status = 'Failed' AND @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @ShowCount < @RepeatCount
+    BEGIN
         SET @FailureNextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
-    ELSE
-        SET @FailureNextShowUtc = @Now;
+
+        IF @ExpiresUtc IS NULL OR @FailureNextShowUtc < @ExpiresUtc
+            SET @FailureStatus = 'Pending';
+        ELSE
+            SET @FailureNextShowUtc = @Now;
+    END
 
     UPDATE dbo.ToastDelivery
-    SET Status = @Status,
+    SET Status = @FailureStatus,
         Attempts = Attempts + 1,
         LastAttemptUtc = @Now,
         NextShowUtc = @FailureNextShowUtc,

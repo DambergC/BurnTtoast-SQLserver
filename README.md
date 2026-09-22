@@ -85,6 +85,7 @@ Semantik för repeat:
 - `RepeatCount` är **totalt** antal visningar per klient, inklusive första visningen. `RepeatCount 3` betyder alltså första toasten + två upprepningar.
 - Ange antingen `-RepeatIntervalSeconds` eller `-RepeatIntervalMinutes` tillsammans med `-RepeatCount`.
 - Om nästa planerade visning skulle inträffa på eller efter `ExpiresUtc` stoppas återstående upprepningar för den klienten.
+- Om en klient misslyckas med att visa en repeat-toast sparas felmeddelandet och klienten försöker igen vid nästa repeat-intervall så länge det finns återstående visningar och meddelandet inte har gått ut.
 - Klienten leasar varje toast-occurrence innan den visas så att samtidiga poll-cykler inte visar samma occurrence mer än en gång. Om klienten kraschar efter visning men före kvittens kan samma occurrence visas igen när leasingen löper ut.
 
 ## Säkerhet
