@@ -372,15 +372,10 @@ function Add-ToastSqlParameters {
         [AllowNull()][System.Collections.IDictionary]$Parameters
     )
 
-    $resolvedParameters = @{}
-    if ($null -ne $Parameters) {
-        foreach ($entry in $Parameters.GetEnumerator()) {
-            $resolvedParameters[[string]$entry.Key] = $entry.Value
-        }
-    }
-
-    foreach($name in $resolvedParameters.Keys) {
-        $value = $resolvedParameters[$name]
+    $parameterEntries = if ($null -eq $Parameters) { @() } else { @($Parameters.GetEnumerator()) }
+    foreach ($entry in $parameterEntries) {
+        $name = [string]$entry.Key
+        $value = $entry.Value
         if ($null -eq $value) {
             $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000)
             $p.Value = [DBNull]::Value
