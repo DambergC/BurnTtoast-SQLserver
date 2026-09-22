@@ -196,7 +196,7 @@ BEGIN
             Attempts = Attempts + 1,
             ShowCount = @NewShowCount,
             LastAttemptUtc = @Now,
-            DeliveredUtc = @Now,
+            DeliveredUtc = CASE WHEN @NextShowUtc IS NULL THEN @Now ELSE DeliveredUtc END,
             NextShowUtc = CASE WHEN @NextShowUtc IS NULL THEN @Now ELSE @NextShowUtc END,
             ErrorMessage = NULL,
             LeaseId = NULL,

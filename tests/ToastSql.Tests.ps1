@@ -113,6 +113,36 @@ Describe 'ToastSql module' {
             $result.Warnings[0] | Should -Match "AppLogo"
             $result.Warnings[1] | Should -Match "Urgent"
         }
+
+        It 'supports DataRow inputs from SQL results' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+            [void]$table.Columns.Add('Title', [string])
+            [void]$table.Columns.Add('Body', [string])
+            [void]$table.Columns.Add('AppLogoPath', [string])
+            [void]$table.Columns.Add('HeroImagePath', [string])
+            [void]$table.Columns.Add('Sound', [string])
+            [void]$table.Columns.Add('IsUrgent', [bool])
+
+            $row = $table.NewRow()
+            $row.MessageId = 99
+            $row.Title = 'Row title'
+            $row.Body = 'Row body'
+            $row.AppLogoPath = 'C:\Toast\row-logo.png'
+            $row.HeroImagePath = 'C:\Toast\row-hero.png'
+            $row.Sound = 'Mail'
+            $row.IsUrgent = $true
+            [void]$table.Rows.Add($row)
+
+            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            $result.Warnings.Count | Should -Be 0
+            $result.Parameters.Text | Should -Be @('Row title','Row body')
+            $result.Parameters.AppLogo | Should -Be 'C:\Toast\row-logo.png'
+            $result.Parameters.HeroImage | Should -Be 'C:\Toast\row-hero.png'
+            $result.Parameters.Sound | Should -Be 'Mail'
+            $result.Parameters.Urgent | Should -BeTrue
+        }
     }
 
     Context 'config loading' {
