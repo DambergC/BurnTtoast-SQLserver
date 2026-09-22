@@ -40,7 +40,8 @@ ALTER TABLE dbo.ToastDelivery
 IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastDelivery') AND name = 'IX_ToastDelivery_Client_Status')
     DROP INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery;
 
-CREATE INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery(ClientId, Status, NextShowUtc, LeaseExpiresUtc, MessageId);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastDelivery') AND name = 'IX_ToastDelivery_Client_Status')
+    CREATE INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery(ClientId, Status, NextShowUtc, LeaseExpiresUtc, MessageId);
 
 GO
 CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
@@ -107,7 +108,7 @@ BEGIN
     WHERE ClientId = @ClientId;
 
     ;WITH DueMessages AS (
-        SELECT TOP (20) d.MessageId
+        SELECT TOP (20) d.ClientId, d.MessageId
         FROM dbo.ToastDelivery d WITH (UPDLOCK, READPAST, ROWLOCK)
         INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
         WHERE d.ClientId = @ClientId
@@ -138,7 +139,7 @@ BEGIN
            m.ExpiresUtc,
            inserted.ShowCount
     FROM dbo.ToastDelivery d
-    INNER JOIN DueMessages x ON x.MessageId = d.MessageId
+    INNER JOIN DueMessages x ON x.ClientId = d.ClientId AND x.MessageId = d.MessageId
     INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
     WHERE d.ClientId = @ClientId;
 END;
