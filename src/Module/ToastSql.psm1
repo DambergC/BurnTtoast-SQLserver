@@ -180,6 +180,7 @@ function Get-ToastConnectionString {
     }
 
     $credential = Get-ToastSqlCredentialValues -SqlCredential $Config['SqlCredential']
+    $builder['Integrated Security'] = $false
     $builder['User ID'] = $credential.UserName
     $builder['Password'] = $credential.Password
     return $builder.ConnectionString
