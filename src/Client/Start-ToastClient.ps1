@@ -74,7 +74,8 @@ function Invoke-Poll {
         try {
             Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status Delivered -LeaseId $row.LeaseId -RetryOnce
         } catch {
-            throw
+            Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $($_.Exception.Message)"
+            continue
         }
     }
 }

@@ -56,6 +56,13 @@ Describe 'ToastSql module' {
             $result.RepeatCount | Should -Be 3
         }
 
+        It 'preserves second-based repeats unchanged' {
+            $result = Resolve-ToastRepeatSettings -RepeatIntervalSeconds 45 -RepeatCount 3
+
+            $result.RepeatIntervalSeconds | Should -Be 45
+            $result.RepeatCount | Should -Be 3
+        }
+
         It 'rejects repeat counts without an interval' {
             { Resolve-ToastRepeatSettings -RepeatCount 2 } | Should -Throw '*RepeatIntervalSeconds or RepeatIntervalMinutes is required*'
         }

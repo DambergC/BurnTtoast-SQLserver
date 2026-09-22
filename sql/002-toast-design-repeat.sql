@@ -43,6 +43,11 @@ IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastDeliv
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastDelivery') AND name = 'IX_ToastDelivery_Client_Status')
     CREATE INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery(ClientId, Status, NextShowUtc, LeaseExpiresUtc, MessageId);
 
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastMessage') AND name = 'IX_ToastMessage_Polling')
+    CREATE INDEX IX_ToastMessage_Polling
+        ON dbo.ToastMessage(MessageId)
+        INCLUDE (IsCancelled, ExpiresUtc, Title, Body, AppLogoPath, HeroImagePath, Sound, IsUrgent, RepeatIntervalSeconds, RepeatCount);
+
 GO
 CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @GroupName nvarchar(128),
