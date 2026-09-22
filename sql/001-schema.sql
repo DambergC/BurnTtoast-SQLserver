@@ -1,11 +1,8 @@
--- Run in the target database. The script does not create a database or a login.
--- Change the database name in your deployment process before execution.
-
 CREATE TABLE dbo.ToastGroup (
     GroupId int IDENTITY(1,1) NOT NULL CONSTRAINT PK_ToastGroup PRIMARY KEY,
     GroupName nvarchar(128) NOT NULL CONSTRAINT UQ_ToastGroup_GroupName UNIQUE,
     IsActive bit NOT NULL CONSTRAINT DF_ToastGroup_IsActive DEFAULT (1),
-    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastGroup_CreatedUtc DEFAULT (SYSUTCDATETIME())
+    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastGroup_CreatedUtc DEFAULT (SYSDATETIME())
 );
 
 CREATE TABLE dbo.ToastClient (
@@ -13,7 +10,7 @@ CREATE TABLE dbo.ToastClient (
     ComputerName nvarchar(256) NOT NULL CONSTRAINT UQ_ToastClient_ComputerName UNIQUE,
     IsActive bit NOT NULL CONSTRAINT DF_ToastClient_IsActive DEFAULT (1),
     LastSeenUtc datetime2(0) NULL,
-    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastClient_CreatedUtc DEFAULT (SYSUTCDATETIME())
+    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastClient_CreatedUtc DEFAULT (SYSDATETIME())
 );
 
 CREATE TABLE dbo.ToastClientGroup (
@@ -29,7 +26,7 @@ CREATE TABLE dbo.ToastMessage (
     GroupId int NOT NULL,
     Title nvarchar(200) NOT NULL,
     Body nvarchar(4000) NOT NULL,
-    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastMessage_CreatedUtc DEFAULT (SYSUTCDATETIME()),
+    CreatedUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastMessage_CreatedUtc DEFAULT (SYSDATETIME()),
     ExpiresUtc datetime2(0) NULL,
     IsCancelled bit NOT NULL CONSTRAINT DF_ToastMessage_IsCancelled DEFAULT (0),
     CONSTRAINT FK_ToastMessage_Group FOREIGN KEY (GroupId) REFERENCES dbo.ToastGroup(GroupId)
@@ -48,55 +45,3 @@ CREATE TABLE dbo.ToastDelivery (
     CONSTRAINT FK_ToastDelivery_Client FOREIGN KEY (ClientId) REFERENCES dbo.ToastClient(ClientId),
     CONSTRAINT CK_ToastDelivery_Status CHECK (Status IN ('Pending','Delivered','Failed','Cancelled'))
 );
-
-CREATE INDEX IX_ToastDelivery_Client_Status ON dbo.ToastDelivery(ClientId, Status, MessageId);
-CREATE INDEX IX_ToastMessage_Group_Created ON dbo.ToastMessage(GroupId, CreatedUtc);
-
-GO
-CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
-    @GroupName nvarchar(128), @Title nvarchar(200), @Body nvarchar(4000), @ExpiresUtc datetime2(0) = NULL
-AS
-BEGIN
-    SET NOCOUNT ON; SET XACT_ABORT ON;
-    DECLARE @GroupId int = (SELECT GroupId FROM dbo.ToastGroup WHERE GroupName=@GroupName AND IsActive=1);
-    IF @GroupId IS NULL THROW 50001, 'Active toast group was not found.', 1;
-    BEGIN TRAN;
-    INSERT dbo.ToastMessage(GroupId,Title,Body,ExpiresUtc) VALUES(@GroupId,@Title,@Body,@ExpiresUtc);
-    DECLARE @MessageId bigint = SCOPE_IDENTITY();
-    INSERT dbo.ToastDelivery(MessageId,ClientId)
-      SELECT @MessageId, ClientId FROM dbo.ToastClientGroup WHERE GroupId=@GroupId;
-    COMMIT;
-    SELECT @MessageId AS MessageId;
-END;
-GO
-
-CREATE OR ALTER PROCEDURE dbo.usp_GetPendingToast
-    @ComputerName nvarchar(256)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName=@ComputerName AND IsActive=1);
-    UPDATE dbo.ToastClient SET LastSeenUtc=SYSUTCDATETIME() WHERE ClientId=@ClientId;
-    SELECT TOP (20) d.MessageId, m.Title, m.Body
-    FROM dbo.ToastDelivery d JOIN dbo.ToastMessage m ON m.MessageId=d.MessageId
-    WHERE d.ClientId=@ClientId AND d.Status='Pending' AND m.IsCancelled=0
-      AND (m.ExpiresUtc IS NULL OR m.ExpiresUtc>SYSUTCDATETIME())
-    ORDER BY d.MessageId;
-END;
-GO
-
-CREATE OR ALTER PROCEDURE dbo.usp_RecordToastDelivery
-    @ComputerName nvarchar(256), @MessageId bigint, @Status varchar(20), @ErrorMessage nvarchar(2000)=NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-    DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName=@ComputerName);
-    UPDATE dbo.ToastDelivery SET Status=@Status, Attempts=Attempts+1, LastAttemptUtc=SYSUTCDATETIME(),
-      DeliveredUtc=CASE WHEN @Status='Delivered' THEN SYSUTCDATETIME() ELSE DeliveredUtc END,
-      ErrorMessage=@ErrorMessage
-    WHERE MessageId=@MessageId AND ClientId=@ClientId;
-END;
-GO
-
--- Example data:
-INSERT dbo.ToastGroup(GroupName) VALUES ('IT-TEST');
