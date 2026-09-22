@@ -68,8 +68,8 @@ SELECT
     m.ExpiresUtc,
     m.CreatedUtc AS CreatedServerLocalTime,
     m.ExpiresUtc AS ExpiresServerLocalTime,
-    m.CreatedUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS CreatedLocalTime,
-    m.ExpiresUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS ExpiresLocalTime
+    (m.CreatedUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''') AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS CreatedLocalTime,
+    (m.ExpiresUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''') AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS ExpiresLocalTime
 FROM dbo.ToastMessage m;';
 
 DECLARE @Sql4 nvarchar(max) = N'
@@ -86,9 +86,9 @@ SELECT
     d.LastAttemptUtc AS LastAttemptServerLocalTime,
     d.DeliveredUtc AS DeliveredServerLocalTime,
     c.LastSeenUtc AS LastSeenServerLocalTime,
-    d.LastAttemptUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS LastAttemptLocalTime,
-    d.DeliveredUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS DeliveredLocalTime,
-    c.LastSeenUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS LastSeenLocalTime
+    (d.LastAttemptUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''') AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS LastAttemptLocalTime,
+    (d.DeliveredUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''') AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS DeliveredLocalTime,
+    (c.LastSeenUtc AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''') AT TIME ZONE N''' + @EscapedDefaultLocalTimeZone + N''' AS LastSeenLocalTime
 FROM dbo.ToastDelivery d
 INNER JOIN dbo.ToastClient c ON c.ClientId = d.ClientId;';
 

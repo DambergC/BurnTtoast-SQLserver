@@ -24,67 +24,78 @@ IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
     ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) WITH VALUES;
 ELSE
 BEGIN
-    DECLARE @NextShowUtcDefaultConstraintName sysname;
-    DECLARE @NextShowUtcDefaultDefinition nvarchar(max);
-    SELECT @NextShowUtcDefaultConstraintName = dc.name
-         , @NextShowUtcDefaultDefinition = dc.definition
-    FROM sys.default_constraints dc
-    INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
-    WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
-      AND c.name = 'NextShowUtc';
+    BEGIN TRY
+        BEGIN TRAN;
 
-    IF @NextShowUtcDefaultDefinition LIKE '%SYSUTCDATETIME%'
-    BEGIN
-        IF @ServerLocalTimeZone IS NULL
-            THROW 50013, 'Set @ServerLocalTimeZone to the SQL Server local Windows time zone name before running UTC-to-local timestamp migration.', 1;
-
-        UPDATE dbo.ToastDelivery
-        SET NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
-            LeaseExpiresUtc = CASE
-                WHEN LeaseExpiresUtc IS NULL THEN NULL
-                ELSE CAST(((LeaseExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
-            END
-        WHERE NextShowUtc IS NOT NULL
-           OR LeaseExpiresUtc IS NOT NULL;
-
-        UPDATE dbo.ToastDelivery
-        SET LastAttemptUtc = CASE
-                WHEN LastAttemptUtc IS NULL THEN NULL
-                ELSE CAST(((LastAttemptUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
-            END,
-            DeliveredUtc = CASE
-                WHEN DeliveredUtc IS NULL THEN NULL
-                ELSE CAST(((DeliveredUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
-            END
-        WHERE LastAttemptUtc IS NOT NULL
-           OR DeliveredUtc IS NOT NULL;
-
-        UPDATE dbo.ToastClient
-        SET LastSeenUtc = CAST(((LastSeenUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
-        WHERE LastSeenUtc IS NOT NULL;
-
-        UPDATE dbo.ToastMessage
-        SET CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
-            ExpiresUtc = CASE
-                WHEN ExpiresUtc IS NULL THEN NULL
-                ELSE CAST(((ExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
-            END
-        WHERE CreatedUtc IS NOT NULL
-           OR ExpiresUtc IS NOT NULL;
-    END;
-
-    IF @NextShowUtcDefaultConstraintName IS NOT NULL
-        EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
-
-    IF NOT EXISTS (
-        SELECT 1
+        DECLARE @NextShowUtcDefaultConstraintName sysname;
+        DECLARE @NextShowUtcDefaultDefinition nvarchar(max);
+        SELECT @NextShowUtcDefaultConstraintName = dc.name
+             , @NextShowUtcDefaultDefinition = dc.definition
         FROM sys.default_constraints dc
         INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
         WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
-          AND c.name = 'NextShowUtc'
-    )
-        ALTER TABLE dbo.ToastDelivery
-            ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
+          AND c.name = 'NextShowUtc';
+
+        IF @NextShowUtcDefaultDefinition LIKE '%SYSUTCDATETIME%'
+        BEGIN
+            IF @ServerLocalTimeZone IS NULL
+                THROW 50013, 'Set @ServerLocalTimeZone to the SQL Server local Windows time zone name before running UTC-to-local timestamp migration.', 1;
+
+            UPDATE dbo.ToastDelivery
+            SET NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+                LeaseExpiresUtc = CASE
+                    WHEN LeaseExpiresUtc IS NULL THEN NULL
+                    ELSE CAST(((LeaseExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE NextShowUtc IS NOT NULL
+               OR LeaseExpiresUtc IS NOT NULL;
+
+            UPDATE dbo.ToastDelivery
+            SET LastAttemptUtc = CASE
+                    WHEN LastAttemptUtc IS NULL THEN NULL
+                    ELSE CAST(((LastAttemptUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END,
+                DeliveredUtc = CASE
+                    WHEN DeliveredUtc IS NULL THEN NULL
+                    ELSE CAST(((DeliveredUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE LastAttemptUtc IS NOT NULL
+               OR DeliveredUtc IS NOT NULL;
+
+            UPDATE dbo.ToastClient
+            SET LastSeenUtc = CAST(((LastSeenUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+            WHERE LastSeenUtc IS NOT NULL;
+
+            UPDATE dbo.ToastMessage
+            SET CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+                ExpiresUtc = CASE
+                    WHEN ExpiresUtc IS NULL THEN NULL
+                    ELSE CAST(((ExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE CreatedUtc IS NOT NULL
+               OR ExpiresUtc IS NOT NULL;
+        END;
+
+        IF @NextShowUtcDefaultConstraintName IS NOT NULL
+            EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.default_constraints dc
+            INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+            WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
+              AND c.name = 'NextShowUtc'
+        )
+            ALTER TABLE dbo.ToastDelivery
+                ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK;
+        THROW;
+    END CATCH
 END;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL
