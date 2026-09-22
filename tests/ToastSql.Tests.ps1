@@ -375,7 +375,8 @@ Describe 'ToastSql module' {
             $scriptPath = Join-Path $PSScriptRoot '..\sql\004-local-time-reporting.sql'
             $scriptText = Get-Content -Path $scriptPath -Raw
 
-            $scriptText | Should -Match "DECLARE @DefaultLocalTimeZone sysname = N'.+';"
+            $scriptText | Should -Match "DECLARE @DefaultLocalTimeZone sysname = NULL;"
+            $scriptText | Should -Match "THROW 50014, 'Set @DefaultLocalTimeZone to the SQL Server local Windows time zone name before running local-time reporting setup\.', 1;"
             $scriptText | Should -Match "ufn_ToastMessageLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
             $scriptText | Should -Match "ufn_ToastDeliveryLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
             $scriptText | Should -Match "\(m\.CreatedUtc AT TIME ZONE @ServerTimeZoneName\) AT TIME ZONE @TimeZoneName"

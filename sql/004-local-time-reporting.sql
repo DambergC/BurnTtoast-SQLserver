@@ -1,7 +1,9 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
-DECLARE @DefaultLocalTimeZone sysname = N'W. Europe Standard Time';
+DECLARE @DefaultLocalTimeZone sysname = NULL; -- Set to the SQL Server local Windows time zone name before running this script.
+IF @DefaultLocalTimeZone IS NULL
+    THROW 50014, 'Set @DefaultLocalTimeZone to the SQL Server local Windows time zone name before running local-time reporting setup.', 1;
 DECLARE @EscapedDefaultLocalTimeZone nvarchar(256) = REPLACE(@DefaultLocalTimeZone, '''', '''''');
 
 DECLARE @Sql1 nvarchar(max) = N'

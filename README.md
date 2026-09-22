@@ -136,7 +136,7 @@ Objekten behåller samma namn och konverterar inte längre från UTC till lokal 
 För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
 `sql/002-toast-design-repeat.sql` flyttar även befintliga UTC-rader i `CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc` och `LastSeenUtc` till serverns lokala tid vid uppgradering.
 Vid uppgradering från äldre UTC-lagring: sätt `@ServerLocalTimeZone` högst upp i `sql/002-toast-design-repeat.sql` till serverns Windows-tidszon (t.ex. `W. Europe Standard Time`) före körning så att konverteringen använder rätt DST-regler.
-Om servern inte använder `W. Europe Standard Time`, uppdatera även `@DefaultLocalTimeZone` i `sql/004-local-time-reporting.sql`.
+Sätt även `@DefaultLocalTimeZone` i `sql/004-local-time-reporting.sql` till samma tidszonvärde för konsekvent rapportering.
 
 Exempel på direktfråga:
 
