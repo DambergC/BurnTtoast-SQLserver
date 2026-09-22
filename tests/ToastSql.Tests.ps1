@@ -258,7 +258,7 @@ Describe 'ToastSql module' {
                     $global:ButtonInvocations[0].Arguments | Should -Be 'https://example.test'
                     $global:ButtonInvocations[0].ActivationType | Should -Be 'Protocol'
                     @($result.Parameters.Button).Count | Should -Be 1
-                    $result.Parameters.Button[0].Content | Should -Be 'Open'
+                    $result.Parameters.Button.Content | Should -Be 'Open'
                     $result.Warnings.Count | Should -Be 0
                 } finally {
                     Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
@@ -355,6 +355,44 @@ Describe 'ToastSql module' {
                     $result.Warnings[0] | Should -Match 'without a button'
                 } finally {
                     Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'creates dismiss buttons without arguments' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocations = @()
+                function New-BTButton {
+                    param([string]$Content,[string]$Arguments,[string]$ActivationType)
+                    $global:ButtonInvocations += @{
+                        Content = $Content
+                        Arguments = $Arguments
+                        ActivationType = $ActivationType
+                    }
+
+                    return [pscustomobject]@{ Kind = 'Button'; Content = $Content }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 274
+                        Title = 'Dismiss title'
+                        Body = 'Dismiss body'
+                        ButtonText = 'Dismiss'
+                        ButtonArguments = $null
+                        ButtonActivationType = 'Dismiss'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $global:ButtonInvocations.Count | Should -Be 1
+                    $global:ButtonInvocations[0].Content | Should -Be 'Dismiss'
+                    $global:ButtonInvocations[0].Arguments | Should -BeNullOrEmpty
+                    $global:ButtonInvocations[0].ActivationType | Should -Be 'Dismiss'
+                    $result.Warnings.Count | Should -Be 0
+                } finally {
+                    Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
                 }
             }
         }
