@@ -13,8 +13,8 @@ function Get-ToastSqlCredentialValues {
         }
     }
 
-    if ($SqlCredential -is [hashtable]) {
-        $missing = @('UserName','Password' | Where-Object { -not $SqlCredential.ContainsKey($_) })
+    if ($SqlCredential -is [System.Collections.IDictionary]) {
+        $missing = @('UserName','Password' | Where-Object { $SqlCredential.Keys -notcontains $_ })
         if ($missing.Count -gt 0) {
             throw "Config file '$Path' setting SqlCredential must define: $($missing -join ', ') when UseIntegratedSecurity = `$false."
         }
@@ -136,10 +136,10 @@ function Get-ToastConnectionString {
 }
 
 function Invoke-ToastSql {
-    param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[switch]$NonQuery)
+    param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
     try {
-        $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=30
+        $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
         foreach($name in $Parameters.Keys) { $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000); $p.Value=if($null -eq $Parameters[$name]) {[DBNull]::Value} else {$Parameters[$name]} }
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
         $reader=$command.ExecuteReader(); $table=[System.Data.DataTable]::new(); $table.Load($reader); return $table
