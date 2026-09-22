@@ -171,6 +171,63 @@ function Resolve-ToastButtonSettings {
     }
 }
 
+function Resolve-ToastQueueResult {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Result
+    )
+
+    if ($null -eq $Result) {
+        throw 'Queue toast message SQL command returned no result set.'
+    }
+
+    $rows = @()
+    if ($Result -is [System.Data.DataTable]) {
+        if (-not $Result.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $rows = @($Result.Rows)
+    } elseif ($Result -is [System.Data.DataRow]) {
+        if (-not $Result.Table.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $rows = @($Result)
+    } else {
+        $messageIdProperty = $Result.PSObject.Properties['MessageId']
+        if ($null -eq $messageIdProperty) {
+            throw 'Queue toast message SQL result must expose a MessageId value.'
+        }
+
+        $messageId = $messageIdProperty.Value
+        if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+            throw 'Queue toast message SQL result contained a null MessageId value.'
+        }
+
+        return [pscustomobject]@{
+            MessageId = [long]$messageId
+        }
+    }
+
+    if ($rows.Count -eq 0) {
+        throw 'Queue toast message SQL command returned no rows.'
+    }
+
+    if ($rows.Count -ne 1) {
+        throw "Queue toast message SQL command returned $($rows.Count) rows; exactly one row with MessageId was expected."
+    }
+
+    $resolvedMessageId = Get-ToastObjectPropertyValue -InputObject $rows[0] -PropertyName 'MessageId'
+    if ($null -eq $resolvedMessageId) {
+        throw 'Queue toast message SQL result contained a null MessageId value.'
+    }
+
+    return [pscustomobject]@{
+        MessageId = [long]$resolvedMessageId
+    }
+}
+
 function Get-ToastObjectPropertyValue {
     param(
         [Parameter(Mandatory)]$InputObject,
@@ -306,6 +363,69 @@ function Get-ToastNotificationSupportedParameters {
     }
 
     return $supportedParameters
+}
+
+function Add-ToastSqlParameters {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Data.SqlClient.SqlCommand]$Command,
+        [AllowNull()][System.Collections.IDictionary]$Parameters
+    )
+
+    $resolvedParameters = @{}
+    if ($null -ne $Parameters) {
+        foreach ($entry in $Parameters.GetEnumerator()) {
+            $resolvedParameters[[string]$entry.Key] = $entry.Value
+        }
+    }
+
+    foreach($name in $resolvedParameters.Keys) {
+        $value = $resolvedParameters[$name]
+        if ($null -eq $value) {
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000)
+            $p.Value = [DBNull]::Value
+            continue
+        }
+
+        if ($value -is [guid]) {
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::UniqueIdentifier)
+            $p.Value=$value
+            continue
+        }
+
+        if ($value -is [datetime]) {
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::DateTime2)
+            $p.Value=$value
+            continue
+        }
+
+        if ($value -is [bool]) {
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::Bit)
+            $p.Value=$value
+            continue
+        }
+
+        if ($value -is [byte] -or $value -is [sbyte] -or $value -is [int16] -or $value -is [uint16] -or $value -is [int32]) {
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::Int)
+            $p.Value=[int]$value
+            continue
+        }
+
+        if ($value -is [uint32] -or $value -is [int64] -or $value -is [uint64]) {
+            if ($value -is [uint64] -and $value -gt [uint64][long]::MaxValue) {
+                throw "SQL parameter '$name' cannot exceed Int64::MaxValue."
+            }
+
+            $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::BigInt)
+            $p.Value=[long]$value
+            continue
+        }
+
+        $stringValue = [string]$value
+        $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1,$stringValue.Length) }
+        $p=$Command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,$parameterSize)
+        $p.Value=$stringValue
+    }
 }
 
 function Get-ToastSqlCredential {
@@ -467,60 +587,14 @@ function Get-ToastConnectionString {
 }
 
 function Invoke-ToastSql {
-    param([string]$ConnectionString,[System.Data.SqlClient.SqlCredential]$SqlCredential,[string]$CommandText,[hashtable]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
+    param([string]$ConnectionString,[System.Data.SqlClient.SqlCredential]$SqlCredential,[string]$CommandText,[System.Collections.IDictionary]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
     $command = $null
     $reader = $null
     try {
         if ($null -ne $SqlCredential) { $connection.Credential = $SqlCredential }
         $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
-        foreach($name in $Parameters.Keys) {
-            $value = $Parameters[$name]
-            if ($null -eq $value) {
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000)
-                $p.Value = [DBNull]::Value
-                continue
-            }
-
-            if ($value -is [guid]) {
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::UniqueIdentifier)
-                $p.Value=$value
-                continue
-            }
-
-            if ($value -is [datetime]) {
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::DateTime2)
-                $p.Value=$value
-                continue
-            }
-
-            if ($value -is [bool]) {
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::Bit)
-                $p.Value=$value
-                continue
-            }
-
-            if ($value -is [byte] -or $value -is [sbyte] -or $value -is [int16] -or $value -is [uint16] -or $value -is [int32]) {
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::Int)
-                $p.Value=[int]$value
-                continue
-            }
-
-            if ($value -is [uint32] -or $value -is [int64] -or $value -is [uint64]) {
-                if ($value -is [uint64] -and $value -gt [uint64][long]::MaxValue) {
-                    throw "SQL parameter '$name' cannot exceed Int64::MaxValue."
-                }
-
-                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::BigInt)
-                $p.Value=[long]$value
-                continue
-            }
-
-            $stringValue = [string]$value
-            $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1,$stringValue.Length) }
-            $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,$parameterSize)
-            $p.Value=$stringValue
-        }
+        Add-ToastSqlParameters -Command $command -Parameters $Parameters
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
         $reader=$command.ExecuteReader(); $table=[System.Data.DataTable]::new(); $table.Load($reader); return $table
     } finally {
@@ -530,4 +604,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastQueueResult,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters

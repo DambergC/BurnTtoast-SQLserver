@@ -85,6 +85,12 @@ Describe 'ToastSql module' {
     }
 
     Context 'button settings' {
+        It 'exports the button settings helper' {
+            $command = Get-Command Resolve-ToastButtonSettings -Module ToastSql -ErrorAction Stop
+
+            $command.CommandType | Should -Be 'Function'
+        }
+
         It 'keeps button fields null when button settings are omitted' {
             $result = Resolve-ToastButtonSettings
 
@@ -126,6 +132,41 @@ Describe 'ToastSql module' {
 
         It 'rejects protocol buttons with non-absolute URIs' {
             { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments '/relative/path' -ButtonActivationType 'Protocol' } | Should -Throw '*valid absolute URI*'
+        }
+    }
+
+    Context 'queue result handling' {
+        It 'returns a predictable MessageId object for a single-row DataTable result' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+
+            $row = $table.NewRow()
+            $row.MessageId = 42
+            [void]$table.Rows.Add($row)
+
+            $result = Resolve-ToastQueueResult -Result $table
+
+            $result.MessageId | Should -Be 42
+        }
+
+        It 'accepts direct object results with MessageId' {
+            $result = Resolve-ToastQueueResult -Result ([pscustomobject]@{ MessageId = 43 })
+
+            $result.MessageId | Should -Be 43
+        }
+
+        It 'throws a clear error when the queue procedure returns no rows' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+
+            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*returned no rows*'
+        }
+
+        It 'throws a clear error when the queue procedure result lacks MessageId' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('OtherColumn', [string])
+
+            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*must include a MessageId column*'
         }
     }
 
@@ -499,6 +540,41 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'SQL parameter handling' {
+        It 'accepts ordered dictionaries and preserves null SQL parameters' {
+            InModuleScope ToastSql {
+                $command = [System.Data.SqlClient.SqlCommand]::new()
+                $parameters = [ordered]@{
+                    Sound = $null
+                    RepeatCount = 3
+                    IsUrgent = $true
+                    ExpiresUtc = [datetime]'2026-01-02T03:04:05Z'
+                }
+
+                Add-ToastSqlParameters -Command $command -Parameters $parameters
+
+                $command.Parameters.Count | Should -Be 4
+                $command.Parameters['@Sound'].Value | Should -Be ([DBNull]::Value)
+                $command.Parameters['@Sound'].SqlDbType | Should -Be ([System.Data.SqlDbType]::NVarChar)
+                $command.Parameters['@RepeatCount'].Value | Should -Be 3
+                $command.Parameters['@RepeatCount'].SqlDbType | Should -Be ([System.Data.SqlDbType]::Int)
+                $command.Parameters['@IsUrgent'].Value | Should -BeTrue
+                $command.Parameters['@IsUrgent'].SqlDbType | Should -Be ([System.Data.SqlDbType]::Bit)
+                $command.Parameters['@ExpiresUtc'].SqlDbType | Should -Be ([System.Data.SqlDbType]::DateTime2)
+            }
+        }
+
+        It 'treats null parameter collections as empty' {
+            InModuleScope ToastSql {
+                $command = [System.Data.SqlClient.SqlCommand]::new()
+
+                Add-ToastSqlParameters -Command $command -Parameters $null
+
+                $command.Parameters.Count | Should -Be 0
+            }
+        }
+    }
+
     Context 'config loading' {
         BeforeAll {
             $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
@@ -821,6 +897,68 @@ Describe 'ToastSql module' {
 "@
 
             { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*CommandTimeoutSeconds must be a positive integer*"
+        }
+    }
+
+    Context 'Send-ToastMessage script' {
+        BeforeAll {
+            $sendToastMessageScriptPath = Join-Path $PSScriptRoot '..\src\Server\Send-ToastMessage.ps1'
+        }
+
+        It 'passes a hashtable and null sound when sound is omitted' {
+            $global:capturedQueueParameters = $null
+
+            function global:Import-Module {}
+            function global:Import-ToastConfig {
+                @{
+                    SqlServer = 'sql01'
+                    SqlDatabase = 'ToastNotifications'
+                    SqlPort = 1433
+                    UseIntegratedSecurity = $true
+                    Encrypt = $true
+                    TrustServerCertificate = $false
+                    ConnectTimeoutSeconds = 15
+                    CommandTimeoutSeconds = 30
+                }
+            }
+            function global:Test-ToastSqlPort {}
+            function global:Get-ToastConnectionString { 'Server=fake;' }
+            function global:Get-ToastSqlCredential { $null }
+            function global:Resolve-ToastRepeatSettings { @{ RepeatIntervalSeconds = $null; RepeatCount = $null } }
+            function global:Resolve-ToastButtonSettings { @{ ButtonText = $null; ButtonArguments = $null; ButtonActivationType = $null } }
+            function global:Invoke-ToastSql {
+                param($ConnectionString,$SqlCredential,$CommandText,$Parameters,$CommandTimeoutSeconds,[switch]$NonQuery)
+                $global:capturedQueueParameters = $Parameters
+                return [pscustomobject]@{ MessageId = 99 }
+            }
+            function global:Resolve-ToastQueueResult {
+                param($Result)
+                return $Result
+            }
+
+            try {
+                $output = & $sendToastMessageScriptPath -ConfigPath 'config.psd1' -GroupName 'IT-TEST' -Title 'Test' -Body 'Body'
+
+                $global:capturedQueueParameters.GetType().FullName | Should -Be 'System.Collections.Hashtable'
+                $global:capturedQueueParameters.ContainsKey('Sound') | Should -BeTrue
+                $global:capturedQueueParameters.Sound | Should -Be $null
+                $output | Should -Be "Queued message 99 for group 'IT-TEST'."
+            } finally {
+                Remove-Variable capturedQueueParameters -Scope Global -ErrorAction SilentlyContinue
+                foreach ($functionName in @(
+                    'Import-Module',
+                    'Import-ToastConfig',
+                    'Test-ToastSqlPort',
+                    'Get-ToastConnectionString',
+                    'Get-ToastSqlCredential',
+                    'Resolve-ToastRepeatSettings',
+                    'Resolve-ToastButtonSettings',
+                    'Invoke-ToastSql',
+                    'Resolve-ToastQueueResult'
+                )) {
+                    Remove-Item "Function:\$functionName" -ErrorAction SilentlyContinue
+                }
+            }
         }
     }
 }
