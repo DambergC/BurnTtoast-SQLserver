@@ -62,6 +62,15 @@ BEGIN
         UPDATE dbo.ToastClient
         SET LastSeenUtc = CAST(((LastSeenUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
         WHERE LastSeenUtc IS NOT NULL;
+
+        UPDATE dbo.ToastMessage
+        SET CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+            ExpiresUtc = CASE
+                WHEN ExpiresUtc IS NULL THEN NULL
+                ELSE CAST(((ExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+            END
+        WHERE CreatedUtc IS NOT NULL
+           OR ExpiresUtc IS NOT NULL;
     END;
 
     IF @NextShowUtcDefaultConstraintName IS NOT NULL
