@@ -28,7 +28,8 @@ function Invoke-Poll {
                 Write-Warning $warning
             }
 
-            New-BurntToastNotification @toastDetails.Parameters
+            $toastParameters = $toastDetails.Parameters
+            New-BurntToastNotification @toastParameters
             Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null;LeaseId=[string]$row.LeaseId} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
         }catch{
             $toastErrorRecord = $_
