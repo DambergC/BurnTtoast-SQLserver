@@ -19,12 +19,19 @@ function Import-ToastConfig {
         throw "Config file '$Path' is missing required setting(s): $($missing -join ', '). Copy config/config.example.psd1 and define each setting explicitly."
     }
 
-    if ($ResolveClientName -and [string]::IsNullOrWhiteSpace([string]$config['ClientName'])) {
-        if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
-            throw "Config file '$Path' leaves ClientName empty and the COMPUTERNAME environment variable is not available. Set ClientName explicitly or ensure COMPUTERNAME is defined."
+    if ($ResolveClientName) {
+        $clientName = $config['ClientName']
+        if ($null -ne $clientName -and $clientName -isnot [string]) {
+            throw "Config file '$Path' setting ClientName must be a string or `$null."
         }
 
-        $config['ClientName'] = $env:COMPUTERNAME
+        if ([string]::IsNullOrWhiteSpace($clientName)) {
+            if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
+                throw "Config file '$Path' leaves ClientName empty and the COMPUTERNAME environment variable is not available. Set ClientName explicitly or ensure COMPUTERNAME is defined."
+            }
+
+            $config['ClientName'] = $env:COMPUTERNAME
+        }
     }
 
     return $config
