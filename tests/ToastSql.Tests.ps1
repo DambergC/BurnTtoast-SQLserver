@@ -401,6 +401,32 @@ Describe 'ToastSql module' {
             $scriptText | Should -Match "UPDATE dbo\.ToastDelivery"
             $scriptText | Should -Match "UPDATE dbo\.ToastClient"
             $scriptText | Should -Match "AT TIME ZONE 'UTC'\) AT TIME ZONE @ServerLocalTimeZone"
+            $scriptText | Should -Match "DECLARE @DropNextShowUtcDefaultConstraintSql nvarchar\(max\)"
+            $scriptText | Should -Match "EXEC sp_executesql @DropNextShowUtcDefaultConstraintSql"
+        }
+    }
+
+    Context 'queued-toast SQL procedure compatibility' {
+        It 'exposes queue/get/record contracts expected by the client scripts' {
+            $repeatScriptPath = Join-Path $PSScriptRoot '..\sql\002-toast-design-repeat.sql'
+            $buttonScriptPath = Join-Path $PSScriptRoot '..\sql\003-toast-button.sql'
+            $repeatScriptText = Get-Content -Path $repeatScriptPath -Raw
+            $buttonScriptText = Get-Content -Path $buttonScriptPath -Raw
+
+            $repeatScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_RecordToastDelivery"
+            $repeatScriptText | Should -Match "@LeaseId uniqueidentifier"
+            $repeatScriptText | Should -Match "inserted\.LeaseId"
+            $repeatScriptText | Should -Match "inserted\.ShowCount"
+
+            $buttonScriptText | Should -Match "@AppLogoPath nvarchar\(1024\) = NULL"
+            $buttonScriptText | Should -Match "@HeroImagePath nvarchar\(1024\) = NULL"
+            $buttonScriptText | Should -Match "@Sound varchar\(20\) = NULL"
+            $buttonScriptText | Should -Match "@IsUrgent bit = 0"
+            $buttonScriptText | Should -Match "@RepeatIntervalSeconds int = NULL"
+            $buttonScriptText | Should -Match "@RepeatCount int = NULL"
+            $buttonScriptText | Should -Match "@ButtonText nvarchar\(200\) = NULL"
+            $buttonScriptText | Should -Match "@ButtonArguments nvarchar\(2048\) = NULL"
+            $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
         }
     }
 }

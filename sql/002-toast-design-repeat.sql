@@ -94,7 +94,11 @@ BEGIN
         END;
 
         IF @NextShowUtcDefaultConstraintName IS NOT NULL
-            EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
+        BEGIN
+            DECLARE @DropNextShowUtcDefaultConstraintSql nvarchar(max) =
+                N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';';
+            EXEC sp_executesql @DropNextShowUtcDefaultConstraintSql;
+        END;
 
         IF NOT EXISTS (
             SELECT 1
