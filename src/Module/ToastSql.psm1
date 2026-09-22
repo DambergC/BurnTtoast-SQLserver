@@ -133,12 +133,21 @@ function Get-ToastConnectionString {
         }
     }
 
+    $connectTimeoutSeconds = 15
+    if ($Config.ContainsKey('ConnectTimeoutSeconds')) {
+        if ($Config['ConnectTimeoutSeconds'] -isnot [int]) {
+            throw "Config setting ConnectTimeoutSeconds must be an integer."
+        }
+
+        $connectTimeoutSeconds = $Config['ConnectTimeoutSeconds']
+    }
+
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
     $builder['Data Source'] = "tcp:$($Config.SqlServer),$($Config.SqlPort)"
     $builder['Initial Catalog'] = $Config.SqlDatabase
     $builder['Encrypt'] = $Config.Encrypt
     $builder['TrustServerCertificate'] = $Config.TrustServerCertificate
-    $builder['Connect Timeout'] = [int]$Config.CommandTimeoutSeconds
+    $builder['Connect Timeout'] = $connectTimeoutSeconds
 
     if ($Config.UseIntegratedSecurity) {
         $builder['Integrated Security'] = $true

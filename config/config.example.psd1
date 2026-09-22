@@ -13,5 +13,6 @@
     InternalPowerShellRepository = $null
     Encrypt = $true
     TrustServerCertificate = $false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }

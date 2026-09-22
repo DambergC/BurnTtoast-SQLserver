@@ -4,8 +4,8 @@ Describe 'ToastSql module' {
         $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
         Get-ToastConnectionString $c | Should -Match 'tcp:sql01,1433'
     }
-    It 'preserves CommandTimeoutSeconds as the SQL connect timeout' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=42}
+    It 'uses ConnectTimeoutSeconds for the SQL connect timeout' {
+        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;ConnectTimeoutSeconds=42;CommandTimeoutSeconds=15}
         $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new((Get-ToastConnectionString $c))
 
         $builder['Connect Timeout'] | Should -Be 42
