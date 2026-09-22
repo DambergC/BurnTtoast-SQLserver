@@ -162,6 +162,19 @@ Describe 'ToastSql module' {
             { Resolve-ToastQueueResult -Result $table } | Should -Throw '*returned no rows*'
         }
 
+        It 'throws a clear error when the queue procedure returns multiple rows' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+
+            foreach ($messageId in @(1, 2)) {
+                $row = $table.NewRow()
+                $row.MessageId = $messageId
+                [void]$table.Rows.Add($row)
+            }
+
+            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*exactly one row*'
+        }
+
         It 'throws a clear error when the queue procedure result lacks MessageId' {
             $table = [System.Data.DataTable]::new()
             [void]$table.Columns.Add('OtherColumn', [string])
