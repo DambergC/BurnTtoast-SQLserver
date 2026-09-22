@@ -6,6 +6,7 @@ function Import-ToastConfig {
         [Parameter(Mandatory)][string]$Path,
         [string[]]$RequiredProperties = @(),
         [string[]]$NullableProperties = @(),
+        [string[]]$NonEmptyProperties = @(),
         [switch]$ResolveClientName
     )
 
@@ -30,6 +31,21 @@ function Import-ToastConfig {
     )
     if ($emptyRequired.Count -gt 0) {
         throw "Config file '$Path' has empty required setting(s): $($emptyRequired -join ', '). Set each required value explicitly or copy it from config/config.example.psd1."
+    }
+
+    $emptyCollections = @(
+        $NonEmptyProperties |
+            Where-Object {
+                $value = $config[$_]
+                $value -is [System.Array] -and $value.Count -eq 0
+            }
+    )
+    if ($emptyCollections.Count -gt 0) {
+        throw "Config file '$Path' must define at least one value for: $($emptyCollections -join ', ')."
+    }
+
+    if ($config.ContainsKey('UseIntegratedSecurity') -and -not $config['UseIntegratedSecurity']) {
+        throw "Config file '$Path' sets UseIntegratedSecurity = `$false. These scripts load only static PSD1 data, so they require integrated security instead of runtime SQL credentials."
     }
 
     if ($ResolveClientName) {

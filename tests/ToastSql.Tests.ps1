@@ -19,6 +19,7 @@ Describe 'ToastSql module' {
         BeforeAll {
             $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','CommandTimeoutSeconds')
             $nullableClientSettings = @('ClientName','InternalPowerShellRepository')
+            $nonEmptyClientSettings = @('ClientGroups')
             $originalComputerName = $env:COMPUTERNAME
             $env:COMPUTERNAME = 'TESTHOST'
         }
@@ -51,7 +52,7 @@ Describe 'ToastSql module' {
 }
 "@
 
-            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName
+            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
 
             $config.ClientName | Should -Be 'TESTHOST'
         }
@@ -73,7 +74,7 @@ Describe 'ToastSql module' {
 }
 "@
 
-            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName
+            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
 
             $config.ClientName | Should -Be 'STATIC-CLIENT'
         }
@@ -95,7 +96,7 @@ Describe 'ToastSql module' {
 }
 "@
 
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName } | Should -Throw "*Failed to load config file*ClientName = `$null*"
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*Failed to load config file*ClientName = `$null*"
         }
 
         It 'throws a clear error when required settings are missing' {
@@ -114,7 +115,7 @@ Describe 'ToastSql module' {
 }
 "@
 
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName } | Should -Throw "*missing required setting(s): SqlServer*"
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*missing required setting(s): SqlServer*"
         }
 
         It 'rejects a non-string ClientName value' {
@@ -134,7 +135,7 @@ Describe 'ToastSql module' {
 }
 "@
 
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a string or `$null*"
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a string or `$null*"
         }
 
         It 'rejects an empty required SqlServer setting' {
@@ -154,7 +155,47 @@ Describe 'ToastSql module' {
 }
 "@
 
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -ResolveClientName } | Should -Throw "*empty required setting(s): SqlServer*"
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*empty required setting(s): SqlServer*"
+        }
+
+        It 'rejects an empty ClientGroups array' {
+            $configPath = Join-Path $TestDrive 'empty-client-groups.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$true
+    ClientName = `$null
+    ClientGroups = @()
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*at least one value for: ClientGroups*"
+        }
+
+        It 'rejects non-integrated security when loading from a PSD1' {
+            $configPath = Join-Path $TestDrive 'sql-auth.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$false
+    ClientName = `$null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*require integrated security instead of runtime SQL credentials*"
         }
     }
 }
