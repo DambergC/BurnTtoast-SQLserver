@@ -326,7 +326,7 @@ function Get-ToastNotificationParameters {
                     $warnings.Add("Installed BurntToast version does not support dismiss action buttons. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without a button.")
                 }
             } else {
-                $newButtonParameters['ActivationType'] = 'Protocol'
+                $newButtonParameters['ActivationType'] = $resolvedButtonActivationType
                 if (-not [string]::IsNullOrWhiteSpace([string]$buttonArguments)) {
                     $newButtonParameters['Arguments'] = [string]$buttonArguments
                 }
