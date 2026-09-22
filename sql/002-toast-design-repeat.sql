@@ -1,5 +1,6 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+DECLARE @ServerLocalTimeZone sysname = N'W. Europe Standard Time';
 
 IF COL_LENGTH('dbo.ToastMessage', 'AppLogoPath') IS NULL
     ALTER TABLE dbo.ToastMessage ADD AppLogoPath nvarchar(1024) NULL;
@@ -34,13 +35,11 @@ BEGIN
 
     IF @NextShowUtcDefaultDefinition LIKE '%SYSUTCDATETIME%'
     BEGIN
-        DECLARE @UtcToLocalOffsetMinutes int = DATEDIFF(MINUTE, SYSUTCDATETIME(), SYSDATETIME());
-
         UPDATE dbo.ToastDelivery
-        SET NextShowUtc = DATEADD(MINUTE, @UtcToLocalOffsetMinutes, NextShowUtc),
+        SET NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
             LeaseExpiresUtc = CASE
                 WHEN LeaseExpiresUtc IS NULL THEN NULL
-                ELSE DATEADD(MINUTE, @UtcToLocalOffsetMinutes, LeaseExpiresUtc)
+                ELSE CAST(((LeaseExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
             END
         WHERE NextShowUtc IS NOT NULL
            OR LeaseExpiresUtc IS NOT NULL;

@@ -123,7 +123,7 @@ Dismiss-knapp:
 
 ## Lokal tidsrapportering
 
-Ny schemaläggning och leveransstatus använder serverns lokala tid (`NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`), och nya `ExpiresUtc`-värden lagras i lokal tid.
+Ny schemaläggning och leveransstatus använder serverns lokala tid (`NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
 Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och betyder inte längre att nya värden alltid är UTC.
 
 `sql/004-local-time-reporting.sql` skapar:
@@ -135,6 +135,7 @@ Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och be
 Objekten behåller samma namn men gör inte längre någon tidszonskonvertering; `*Local*`-kolumnerna returnerar samma lokala tid som lagras i tabellerna.
 För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
 `sql/002-toast-design-repeat.sql` flyttar även befintliga schematider (`NextShowUtc`/`LeaseExpiresUtc`) från tidigare UTC-baserad lagring till serverns lokala tid vid uppgradering.
+Om servern använder annan tidszon än `W. Europe Standard Time`, ändra `@ServerLocalTimeZone` högst upp i `sql/002-toast-design-repeat.sql` före körning.
 
 Exempel på direktfråga:
 
