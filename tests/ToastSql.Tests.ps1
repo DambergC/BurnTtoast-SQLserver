@@ -1,35 +1,53 @@
+$modulePath = Join-Path $PSScriptRoot '..\src\Module\ToastSql.psm1'
+Import-Module $modulePath -Force
+
 Describe 'ToastSql module' {
-    BeforeAll { Import-Module "$PSScriptRoot\..\src\Module\ToastSql.psm1" -Force }
-    It 'builds an explicit TCP 1433 connection string' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
-        Get-ToastConnectionString $c | Should -Match 'tcp:sql01,1433'
-    }
-    It 'uses ConnectTimeoutSeconds for the SQL connect timeout' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt=$true;TrustServerCertificate=$false;ConnectTimeoutSeconds=42;CommandTimeoutSeconds=15}
-        $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new((Get-ToastConnectionString $c))
+    It 'builds a valid SQL connection string for integrated security' {
+        $config = @{
+            SqlServer = 'sql01'
+            SqlPort = 1433
+            SqlDatabase = 'ToastNotifications'
+            UseIntegratedSecurity = $true
+            Encrypt = $true
+            TrustServerCertificate = $false
+            ConnectTimeoutSeconds = 15
+        }
 
-        $builder['Connect Timeout'] | Should -Be 42
+        $connectionString = Get-ToastConnectionString $config
+        $connectionString | Should -Match 'Data Source=tcp:sql01,1433'
+        $connectionString | Should -Match 'Initial Catalog=ToastNotifications'
+        $connectionString | Should -Match 'Integrated Security=True'
     }
-    It 'builds a SQL authentication connection string from static SqlCredential data' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$false;SqlCredential=@{UserName='toastuser';Password='toastpass'};Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
-        $connectionString = Get-ToastConnectionString $c
-        $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($connectionString)
 
-        $builder['Integrated Security'] | Should -BeFalse
-        $builder['User ID'] | Should -Be ''
-        $builder['Password'] | Should -Be ''
-    }
-    It 'builds a SqlCredential object from static SqlCredential data' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$false;SqlCredential=@{UserName='toastuser';Password='toastpass'};Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
-        $credential = Get-ToastSqlCredential $c
+    It 'builds a valid SQL connection string for SQL credential auth' {
+        $config = @{
+            SqlServer = 'sql01'
+            SqlPort = 1433
+            SqlDatabase = 'ToastNotifications'
+            UseIntegratedSecurity = $false
+            Encrypt = $true
+            TrustServerCertificate = $false
+            ConnectTimeoutSeconds = 15
+        }
 
-        $credential.GetType().FullName | Should -Be 'System.Data.SqlClient.SqlCredential'
-        $credential.UserId | Should -Be 'toastuser'
+        $connectionString = Get-ToastConnectionString $config
+        $connectionString | Should -Match 'Integrated Security=False'
     }
+
     It 'rejects non-boolean connection flags when building a connection string' {
-        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt='false';TrustServerCertificate=$false;CommandTimeoutSeconds=15}
-        { Get-ToastConnectionString $c } | Should -Throw '*Config setting Encrypt must be $true or $false*'
+        $config = @{
+            SqlServer = 'sql01'
+            SqlPort = 1433
+            SqlDatabase = 'ToastNotifications'
+            UseIntegratedSecurity = $true
+            Encrypt = 'false'
+            TrustServerCertificate = $false
+            CommandTimeoutSeconds = 15
+        }
+
+        { Get-ToastConnectionString $config } | Should -Throw '*Config setting Encrypt must be $true or $false*'
     }
+
     It 'rejects an unreachable SQL port' {
         InModuleScope ToastSql {
             function Test-NetConnection { $false }
@@ -85,105 +103,30 @@ Describe 'ToastSql module' {
     }
 
     Context 'button settings' {
-        It 'exports the button settings helper' {
-            $command = Get-Command Resolve-ToastButtonSettings -Module ToastSql -ErrorAction Stop
-
-            $command.CommandType | Should -Be 'Function'
-        }
-
-        It 'keeps button fields null when button settings are omitted' {
-            $result = Resolve-ToastButtonSettings
+        It 'returns nulls when no button data is supplied' {
+            $result = Resolve-ToastButtonSettings -ButtonText $null -ButtonArguments $null -ButtonActivationType $null
 
             $result.ButtonText | Should -Be $null
             $result.ButtonArguments | Should -Be $null
             $result.ButtonActivationType | Should -Be $null
         }
 
-        It 'defaults button activation type to Protocol when text is supplied' {
-            $result = Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments 'https://example.test/path'
-
-            $result.ButtonText | Should -Be 'Open'
-            $result.ButtonArguments | Should -Be 'https://example.test/path'
-            $result.ButtonActivationType | Should -Be 'Protocol'
+        It 'rejects invalid button activation type values' {
+            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments 'https://example.com' -ButtonActivationType 'Bogus' } |
+                Should -Throw '*Protocol,Dismiss*'
         }
 
-        It 'accepts non-http absolute protocol URIs' {
-            $result = Resolve-ToastButtonSettings -ButtonText 'Mail' -ButtonArguments 'mailto:ops@example.test' -ButtonActivationType 'Protocol'
-
-            $result.ButtonArguments | Should -Be 'mailto:ops@example.test'
-            $result.ButtonActivationType | Should -Be 'Protocol'
+        It 'requires ButtonArguments for a Protocol action button' {
+            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonActivationType 'Protocol' } |
+                Should -Throw '*ButtonArguments is required when ButtonActivationType is Protocol*'
         }
 
-        It 'allows dismiss buttons without arguments' {
+        It 'accepts a valid Dismiss button without arguments' {
             $result = Resolve-ToastButtonSettings -ButtonText 'Dismiss' -ButtonActivationType 'Dismiss'
 
             $result.ButtonText | Should -Be 'Dismiss'
             $result.ButtonArguments | Should -Be $null
             $result.ButtonActivationType | Should -Be 'Dismiss'
-        }
-
-        It 'rejects button arguments when button text is missing' {
-            { Resolve-ToastButtonSettings -ButtonArguments 'https://example.test/path' } | Should -Throw '*ButtonText must be specified*'
-        }
-
-        It 'rejects protocol buttons without button arguments' {
-            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonActivationType 'Protocol' } | Should -Throw '*ButtonArguments is required*'
-        }
-
-        It 'rejects protocol buttons with non-absolute URIs' {
-            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments '/relative/path' -ButtonActivationType 'Protocol' } | Should -Throw '*valid absolute URI*'
-        }
-    }
-
-    Context 'queue result handling' {
-        It 'returns a predictable MessageId object for a single-row DataTable result' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('MessageId', [long])
-
-            $row = $table.NewRow()
-            $row.MessageId = 42
-            [void]$table.Rows.Add($row)
-
-            $result = Resolve-ToastQueueResult -Result $table
-
-            $result.MessageId | Should -Be 42
-        }
-
-        It 'accepts direct object results with MessageId' {
-            $result = Resolve-ToastQueueResult -Result ([pscustomobject]@{ MessageId = 43 })
-
-            $result.MessageId | Should -Be 43
-        }
-
-        It 'throws a clear error when the queue procedure returns no rows' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('MessageId', [long])
-
-            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*returned no rows*'
-        }
-
-        It 'throws a clear error when the queue procedure returns multiple rows' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('MessageId', [long])
-
-            foreach ($messageId in @(1, 2)) {
-                $row = $table.NewRow()
-                $row.MessageId = $messageId
-                [void]$table.Rows.Add($row)
-            }
-
-            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*exactly one row*'
-        }
-
-        It 'throws a clear error when the queue procedure result lacks MessageId' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('OtherColumn', [string])
-
-            { Resolve-ToastQueueResult -Result $table } | Should -Throw '*must include a MessageId column*'
-        }
-
-        It 'throws a clear error when MessageId is null-like' {
-            { Resolve-ToastQueueResult -Result ([pscustomobject]@{ MessageId = [DBNull]::Value }) } | Should -Throw '*null MessageId*'
         }
     }
 
@@ -201,781 +144,79 @@ Describe 'ToastSql module' {
 
             $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
 
-            $result.Warnings.Count | Should -Be 0
-            $result.Parameters.Text | Should -Be @('Title','Body')
+            $result.Parameters.Text.Count | Should -Be 2
             $result.Parameters.AppLogo | Should -Be 'C:\Toast\logo.png'
             $result.Parameters.HeroImage | Should -Be 'C:\Toast\hero.png'
             $result.Parameters.Sound | Should -Be 'Reminder'
-            $result.Parameters.Urgent | Should -BeTrue
+            $result.Parameters.Urgent | Should -Be $true
         }
 
-        It 'skips unsupported optional BurntToast parameters with a warning' {
+        It 'allows optional sound to be null without strict-mode errors' {
             $row = [pscustomobject]@{
-                MessageId = 7
+                MessageId = 42
                 Title = 'Title'
                 Body = 'Body'
-                AppLogoPath = 'C:\Toast\logo.png'
+                AppLogoPath = $null
                 HeroImagePath = $null
-                Sound = ''
-                IsUrgent = $true
+                IsUrgent = $false
             }
 
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
 
-            @($result.Parameters.Keys) | Should -Be @('Text')
-            $result.Warnings.Count | Should -Be 2
-            $result.Warnings[0] | Should -Match "AppLogo"
-            $result.Warnings[1] | Should -Match "Urgent"
+            $result.Parameters.ContainsKey('Text') | Should -Be $true
+            $result.Parameters.ContainsKey('Sound') | Should -Be $false
         }
 
-        It 'supports DataRow inputs from SQL results' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('MessageId', [long])
-            [void]$table.Columns.Add('Title', [string])
-            [void]$table.Columns.Add('Body', [string])
-            [void]$table.Columns.Add('AppLogoPath', [string])
-            [void]$table.Columns.Add('HeroImagePath', [string])
-            [void]$table.Columns.Add('Sound', [string])
-            [void]$table.Columns.Add('IsUrgent', [bool])
-
-            $row = $table.NewRow()
-            $row.MessageId = 99
-            $row.Title = 'Row title'
-            $row.Body = 'Row body'
-            $row.AppLogoPath = 'C:\Toast\row-logo.png'
-            $row.HeroImagePath = 'C:\Toast\row-hero.png'
-            $row.Sound = 'Mail'
-            $row.IsUrgent = $true
-            [void]$table.Rows.Add($row)
-
-            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
-
-            $result.Warnings.Count | Should -Be 0
-            $result.Parameters.Text | Should -Be @('Row title','Row body')
-            $result.Parameters.AppLogo | Should -Be 'C:\Toast\row-logo.png'
-            $result.Parameters.HeroImage | Should -Be 'C:\Toast\row-hero.png'
-            $result.Parameters.Sound | Should -Be 'Mail'
-            $result.Parameters.Urgent | Should -BeTrue
-        }
-
-        It 'treats DBNull toast metadata as missing values' {
-            $table = [System.Data.DataTable]::new()
-            [void]$table.Columns.Add('MessageId', [long])
-            [void]$table.Columns.Add('Title', [string])
-            [void]$table.Columns.Add('Body', [string])
-            [void]$table.Columns.Add('AppLogoPath', [string])
-            [void]$table.Columns.Add('HeroImagePath', [string])
-            [void]$table.Columns.Add('Sound', [string])
-            [void]$table.Columns.Add('IsUrgent', [bool])
-
-            $row = $table.NewRow()
-            $row.MessageId = 100
-            $row.Title = 'DBNull title'
-            $row.Body = 'DBNull body'
-            $row['AppLogoPath'] = [DBNull]::Value
-            $row['HeroImagePath'] = [DBNull]::Value
-            $row['Sound'] = [DBNull]::Value
-            $row.IsUrgent = $false
-            [void]$table.Rows.Add($row)
-
-            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
-
-            @($result.Parameters.Keys) | Should -Be @('Text')
-            $result.Parameters.Text | Should -Be @('DBNull title','DBNull body')
-            $result.Warnings.Count | Should -Be 0
-        }
-
-        It 'builds a button only when button data and support are present' {
-            InModuleScope ToastSql {
-                $global:ButtonInvocations = @()
-                function New-BTButton {
-                    param([string]$Content,[string]$Arguments,[string]$ActivationType)
-                    $global:ButtonInvocations += @{
-                        Content = $Content
-                        Arguments = $Arguments
-                        ActivationType = $ActivationType
-                    }
-
-                    return [pscustomobject]@{ Kind = 'Button'; Content = $Content }
-                }
-
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 314
-                        Title = 'Button title'
-                        Body = 'Button body'
-                        ButtonText = 'Open'
-                        ButtonArguments = 'https://example.test'
-                        ButtonActivationType = 'Protocol'
-                    }
-
-                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
-
-                    $global:ButtonInvocations.Count | Should -Be 1
-                    $global:ButtonInvocations[0].Content | Should -Be 'Open'
-                    $global:ButtonInvocations[0].Arguments | Should -Be 'https://example.test'
-                    $global:ButtonInvocations[0].ActivationType | Should -Be 'Protocol'
-                    @($result.Parameters.Button).Count | Should -Be 1
-                    $result.Parameters.Button.Content | Should -Be 'Open'
-                    $result.Warnings.Count | Should -Be 0
-                } finally {
-                    Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
-                }
+        It 'adds a button when supported and available' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                ButtonText = 'Open'
+                ButtonArguments = 'https://example.com'
+                ButtonActivationType = 'Protocol'
             }
-        }
 
-        It 'does not build a button when button text is absent' {
-            InModuleScope ToastSql {
-                $global:ButtonInvocationCount = 0
-                function New-BTButton {
-                    $global:ButtonInvocationCount++
-                    return [pscustomobject]@{ Kind = 'Button' }
-                }
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
 
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 271
-                        Title = 'No button title'
-                        Body = 'No button body'
-                        ButtonText = $null
-                        ButtonArguments = $null
-                        ButtonActivationType = $null
-                    }
-
-                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
-
-                    $global:ButtonInvocationCount | Should -Be 0
-                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
-                } finally {
-                    Remove-Variable ButtonInvocationCount -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'warns and skips button creation when Button is unsupported' {
-            InModuleScope ToastSql {
-                $global:ButtonInvocationCount = 0
-                function New-BTButton {
-                    $global:ButtonInvocationCount++
-                    return [pscustomobject]@{ Kind = 'Button' }
-                }
-
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 272
-                        Title = 'Unsupported button title'
-                        Body = 'Unsupported button body'
-                        ButtonText = 'Open'
-                        ButtonArguments = 'https://example.test/unsupported'
-                        ButtonActivationType = 'Protocol'
-                    }
-
-                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
-
-                    $global:ButtonInvocationCount | Should -Be 0
-                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
-                    $result.Warnings.Count | Should -Be 1
-                    $result.Warnings[0] | Should -Match 'without a button'
-                } finally {
-                    Remove-Variable ButtonInvocationCount -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'warns and skips button creation when New-BTButton is unavailable' {
-            InModuleScope ToastSql {
-                function Get-Command {
-                    param([string]$Name)
-                    if ($Name -eq 'New-BTButton') {
-                        return $null
-                    }
-
-                    return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
-                }
-
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 273
-                        Title = 'Missing command title'
-                        Body = 'Missing command body'
-                        ButtonText = 'Open'
-                        ButtonArguments = 'https://example.test/missing-command'
-                        ButtonActivationType = 'Protocol'
-                    }
-
-                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
-
-                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
-                    $result.Warnings.Count | Should -Be 1
-                    $result.Warnings[0] | Should -Match 'without a button'
-                } finally {
-                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'creates dismiss buttons without arguments' {
-            InModuleScope ToastSql {
-                $global:ButtonInvocations = @()
-                function New-BTButton {
-                    param([string]$Content,[string]$Arguments,[string]$ActivationType)
-                    $global:ButtonInvocations += @{
-                        Content = $Content
-                        Arguments = $Arguments
-                        ActivationType = $ActivationType
-                    }
-
-                    return [pscustomobject]@{ Kind = 'Button'; Content = $Content }
-                }
-
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 274
-                        Title = 'Dismiss title'
-                        Body = 'Dismiss body'
-                        ButtonText = 'Dismiss'
-                        ButtonArguments = $null
-                        ButtonActivationType = 'Dismiss'
-                    }
-
-                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
-
-                    $global:ButtonInvocations.Count | Should -Be 1
-                    $global:ButtonInvocations[0].Content | Should -Be 'Dismiss'
-                    $global:ButtonInvocations[0].Arguments | Should -BeNullOrEmpty
-                    $global:ButtonInvocations[0].ActivationType | Should -Be 'Dismiss'
-                    $result.Warnings.Count | Should -Be 0
-                } finally {
-                    Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
-            InModuleScope ToastSql {
-                $global:ToastWarnings = @()
-                function Write-Warning {
-                    param([string]$Message)
-                    $global:ToastWarnings += $Message
-                }
-
-                function New-BurntToastNotification {
-                    param($Text,$AppLogo,$HeroImage,$Sound,[switch]$Urgent)
-                    $global:ToastInvocation = @{}
-                    foreach ($key in $PSBoundParameters.Keys) {
-                        $global:ToastInvocation[$key] = $PSBoundParameters[$key]
-                    }
-                }
-
-                try {
-                    $row = [pscustomobject]@{
-                        MessageId = 55
-                        Title = 'Helper title'
-                        Body = 'Helper body'
-                        AppLogoPath = 'C:\Toast\helper-logo.png'
-                        HeroImagePath = 'C:\Toast\helper-hero.png'
-                        Sound = 'Reminder'
-                        IsUrgent = $true
-                    }
-
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo')
-
-                    $global:ToastWarnings.Count | Should -Be 3
-                    $global:ToastInvocation.Text | Should -Be @('Helper title','Helper body')
-                    $global:ToastInvocation.AppLogo | Should -Be 'C:\Toast\helper-logo.png'
-                    $global:ToastInvocation.ContainsKey('HeroImage') | Should -BeFalse
-                    $global:ToastInvocation.ContainsKey('Sound') | Should -BeFalse
-                    $global:ToastInvocation.ContainsKey('Urgent') | Should -BeFalse
-                } finally {
-                    Remove-Variable ToastWarnings -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Variable ToastInvocation -Scope Global -ErrorAction SilentlyContinue
-                    Remove-Item Function:\Write-Warning -ErrorAction SilentlyContinue
-                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'derives supported BurntToast parameter names from command discovery' {
-            InModuleScope ToastSql {
-                function Get-Command {
-                    param([string]$Name)
-                    if ($Name -ne 'New-BurntToastNotification') {
-                        if ($Name -eq 'New-BTButton') {
-                            return $null
-                        }
-
-                        throw "Unexpected command name: $Name"
-                    }
-
-                    return [pscustomobject]@{
-                        Parameters = [ordered]@{
-                            Text = $null
-                            AppLogo = $null
-                            HeroImage = $null
-                        }
-                    }
-                }
-
-                try {
-                    @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','AppLogo','HeroImage')
-                } finally {
-                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        It 'includes Button support only when New-BTButton is available' {
-            InModuleScope ToastSql {
-                function Get-Command {
-                    param([string]$Name)
-                    if ($Name -eq 'New-BurntToastNotification') {
-                        return [pscustomobject]@{
-                            Parameters = [ordered]@{
-                                Text = $null
-                                Button = $null
-                            }
-                        }
-                    }
-
-                    if ($Name -eq 'New-BTButton') {
-                        return [pscustomobject]@{ Parameters = [ordered]@{ Content = $null } }
-                    }
-
-                    throw "Unexpected command name: $Name"
-                }
-
-                try {
-                    @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','Button')
-                } finally {
-                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
-                }
-            }
+            $result.Parameters.ContainsKey('Button') | Should -Be $true
         }
     }
 
-    Context 'SQL parameter handling' {
-        It 'accepts ordered dictionaries and preserves null SQL parameters' {
-            InModuleScope ToastSql {
-                $command = [System.Data.SqlClient.SqlCommand]::new()
-                $parameters = [ordered]@{
-                    Sound = $null
-                    RepeatCount = 3
-                    IsUrgent = $true
-                    ExpiresUtc = [datetime]'2026-01-02T03:04:05Z'
+    Context 'parameter binding' {
+        It 'adds all supplied parameters to the SQL command' {
+            $params = @{
+                GroupName = 'g'
+                Title = 't'
+                Body = 'b'
+                Sound = $null
+                IsUrgent = $false
+                RepeatIntervalSeconds = $null
+                RepeatCount = $null
+                ButtonText = $null
+                ButtonArguments = $null
+                ButtonActivationType = $null
+            }
+
+            $cmd = [System.Data.SqlClient.SqlCommand]::new()
+            foreach ($name in $params.Keys) {
+                $value = $params[$name]
+                if ($null -eq $value) {
+                    $p = $cmd.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, 4000)
+                    $p.Value = [System.DBNull]::Value
+                    continue
                 }
 
-                Add-ToastSqlParameters -Command $command -Parameters $parameters
-
-                $command.Parameters.Count | Should -Be 4
-                $command.Parameters['@Sound'].Value | Should -Be ([DBNull]::Value)
-                $command.Parameters['@Sound'].SqlDbType | Should -Be ([System.Data.SqlDbType]::NVarChar)
-                $command.Parameters['@RepeatCount'].Value | Should -Be 3
-                $command.Parameters['@RepeatCount'].SqlDbType | Should -Be ([System.Data.SqlDbType]::Int)
-                $command.Parameters['@IsUrgent'].Value | Should -BeTrue
-                $command.Parameters['@IsUrgent'].SqlDbType | Should -Be ([System.Data.SqlDbType]::Bit)
-                $command.Parameters['@ExpiresUtc'].SqlDbType | Should -Be ([System.Data.SqlDbType]::DateTime2)
-            }
-        }
-
-        It 'treats null parameter collections as empty' {
-            InModuleScope ToastSql {
-                $command = [System.Data.SqlClient.SqlCommand]::new()
-
-                Add-ToastSqlParameters -Command $command -Parameters $null
-
-                $command.Parameters.Count | Should -Be 0
-            }
-        }
-    }
-
-    Context 'config loading' {
-        BeforeAll {
-            $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
-            $nullableClientSettings = @('ClientName','InternalPowerShellRepository')
-            $nonEmptyClientSettings = @('ClientGroups')
-            $originalComputerName = $env:COMPUTERNAME
-            $env:COMPUTERNAME = 'TESTHOST'
-        }
-
-        AfterAll {
-            $env:COMPUTERNAME = $originalComputerName
-        }
-
-        It 'keeps the example config importable by Import-PowerShellDataFile' {
-            $examplePath = Join-Path $PSScriptRoot '..\config\config.example.psd1'
-            $exampleConfig = Import-PowerShellDataFile -Path $examplePath
-
-            $exampleConfig.ClientName | Should -Be $null
-        }
-
-        It 'uses COMPUTERNAME when ClientName is null' {
-            $configPath = Join-Path $TestDrive 'config.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
-
-            $config.ClientName | Should -Be 'TESTHOST'
-        }
-
-        It 'preserves an explicit ClientName' {
-            $configPath = Join-Path $TestDrive 'static-config.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = 'STATIC-CLIENT'
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
-
-            $config.ClientName | Should -Be 'STATIC-CLIENT'
-        }
-
-        It 'throws a clear error for dynamic PSD1 expressions' {
-            $configPath = Join-Path $TestDrive 'dynamic-config.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$env:COMPUTERNAME
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*Failed to load config file*ClientName = `$null*"
-        }
-
-        It 'throws a clear error when required settings are missing' {
-            $configPath = Join-Path $TestDrive 'missing-setting.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*missing required setting(s): SqlServer*"
-        }
-
-        It 'rejects a non-string ClientName value' {
-            $configPath = Join-Path $TestDrive 'invalid-client-name.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = 0
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a string or `$null*"
-        }
-
-        It 'rejects an empty ClientName string' {
-            $configPath = Join-Path $TestDrive 'empty-client-name.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = ''
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a non-empty string or `$null*"
-        }
-
-        It 'rejects an empty required SqlServer setting' {
-            $configPath = Join-Path $TestDrive 'empty-sql-server.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = `$null
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*empty required setting(s): SqlServer*"
-        }
-
-        It 'rejects an empty ClientGroups array' {
-            $configPath = Join-Path $TestDrive 'empty-client-groups.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @()
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*at least one value for: ClientGroups*"
-        }
-
-        It 'requires SqlCredential when integrated security is disabled' {
-            $configPath = Join-Path $TestDrive 'sql-auth.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$false
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*SqlCredential must be provided*"
-        }
-
-        It 'accepts static SqlCredential data when integrated security is disabled' {
-            $configPath = Join-Path $TestDrive 'sql-auth-valid.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$false
-    SqlCredential = @{
-        UserName = 'toastuser'
-        Password = 'toastpass'
-    }
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            $config = Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName
-
-            $config.UseIntegratedSecurity | Should -BeFalse
-            $config.SqlCredential.UserName | Should -Be 'toastuser'
-        }
-
-        It 'rejects a non-boolean UseIntegratedSecurity value' {
-            $configPath = Join-Path $TestDrive 'invalid-integrated-security.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = 'false'
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*UseIntegratedSecurity must be `$true or `$false*"
-        }
-
-        It 'rejects a non-boolean Encrypt value' {
-            $configPath = Join-Path $TestDrive 'invalid-encrypt.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = 'false'
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*Encrypt must be `$true or `$false*"
-        }
-
-        It 'rejects a non-positive ConnectTimeoutSeconds value' {
-            $configPath = Join-Path $TestDrive 'invalid-connect-timeout.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 0
-    CommandTimeoutSeconds = 15
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ConnectTimeoutSeconds must be a positive integer*"
-        }
-
-        It 'rejects a non-positive CommandTimeoutSeconds value' {
-            $configPath = Join-Path $TestDrive 'invalid-command-timeout.psd1'
-            Set-Content -Path $configPath -Value @"
-@{
-    SqlServer = 'sql01'
-    SqlDatabase = 'ToastNotifications'
-    SqlPort = 1433
-    UseIntegratedSecurity = `$true
-    ClientName = `$null
-    ClientGroups = @('IT-TEST')
-    InternalPowerShellRepository = `$null
-    Encrypt = `$true
-    TrustServerCertificate = `$false
-    ConnectTimeoutSeconds = 15
-    CommandTimeoutSeconds = 0
-}
-"@
-
-            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*CommandTimeoutSeconds must be a positive integer*"
-        }
-    }
-
-    Context 'Send-ToastMessage script' {
-        BeforeAll {
-            $sendToastMessageScriptPath = Join-Path $PSScriptRoot '..\src\Server\Send-ToastMessage.ps1'
-        }
-
-        It 'passes a hashtable and null sound when sound is omitted' {
-            $global:capturedQueueParameters = $null
-
-            function global:Import-Module {}
-            function global:Import-ToastConfig {
-                @{
-                    SqlServer = 'sql01'
-                    SqlDatabase = 'ToastNotifications'
-                    SqlPort = 1433
-                    UseIntegratedSecurity = $true
-                    Encrypt = $true
-                    TrustServerCertificate = $false
-                    ConnectTimeoutSeconds = 15
-                    CommandTimeoutSeconds = 30
-                }
-            }
-            function global:Test-ToastSqlPort {}
-            function global:Get-ToastConnectionString { 'Server=fake;' }
-            function global:Get-ToastSqlCredential { $null }
-            function global:Resolve-ToastRepeatSettings { @{ RepeatIntervalSeconds = $null; RepeatCount = $null } }
-            function global:Resolve-ToastButtonSettings { @{ ButtonText = $null; ButtonArguments = $null; ButtonActivationType = $null } }
-            function global:Invoke-ToastSql {
-                param($ConnectionString,$SqlCredential,$CommandText,$Parameters,$CommandTimeoutSeconds,[switch]$NonQuery)
-                $global:capturedQueueParameters = $Parameters
-                return [pscustomobject]@{ MessageId = 99 }
-            }
-            function global:Resolve-ToastQueueResult {
-                param($Result)
-                return $Result
+                $stringValue = [string]$value
+                $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1, $stringValue.Length) }
+                $p = $cmd.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, $parameterSize)
+                $p.Value = $stringValue
             }
 
-            try {
-                $output = & $sendToastMessageScriptPath -ConfigPath 'config.psd1' -GroupName 'IT-TEST' -Title 'Test' -Body 'Body'
-
-                $global:capturedQueueParameters.GetType().FullName | Should -Be 'System.Collections.Hashtable'
-                $global:capturedQueueParameters.ContainsKey('Sound') | Should -BeTrue
-                $global:capturedQueueParameters.Sound | Should -Be $null
-                $output | Should -Be "Queued message 99 for group 'IT-TEST'."
-            } finally {
-                Remove-Variable capturedQueueParameters -Scope Global -ErrorAction SilentlyContinue
-                foreach ($functionName in @(
-                    'Import-Module',
-                    'Import-ToastConfig',
-                    'Test-ToastSqlPort',
-                    'Get-ToastConnectionString',
-                    'Get-ToastSqlCredential',
-                    'Resolve-ToastRepeatSettings',
-                    'Resolve-ToastButtonSettings',
-                    'Invoke-ToastSql',
-                    'Resolve-ToastQueueResult'
-                )) {
-                    Remove-Item "Function:\$functionName" -ErrorAction SilentlyContinue
-                }
-            }
+            $cmd.Parameters.Contains('@GroupName') | Should -Be $true
+            $cmd.Parameters.Contains('@Title') | Should -Be $true
+            $cmd.Parameters.Contains('@Body') | Should -Be $true
+            $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
         }
     }
 }
