@@ -171,6 +171,65 @@ function Resolve-ToastButtonSettings {
     }
 }
 
+function Resolve-ToastQueueResult {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Result
+    )
+
+    if ($null -eq $Result) {
+        throw 'Queue toast message SQL command returned no result set.'
+    }
+
+    if ($Result -is [System.Data.DataTable]) {
+        if ($Result.Rows.Count -eq 0) {
+            throw 'Queue toast message SQL command returned no rows.'
+        }
+
+        if (-not $Result.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $messageId = $Result.Rows[0]['MessageId']
+        if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+            throw 'Queue toast message SQL result contained a null MessageId value.'
+        }
+
+        return [pscustomobject]@{
+            MessageId = [long]$messageId
+        }
+    }
+
+    if ($Result -is [System.Data.DataRow]) {
+        if (-not $Result.Table.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $messageId = $Result['MessageId']
+        if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+            throw 'Queue toast message SQL result contained a null MessageId value.'
+        }
+
+        return [pscustomobject]@{
+            MessageId = [long]$messageId
+        }
+    }
+
+    $messageIdProperty = $Result.PSObject.Properties['MessageId']
+    if ($null -eq $messageIdProperty) {
+        throw 'Queue toast message SQL result must expose a MessageId value.'
+    }
+
+    $messageId = $messageIdProperty.Value
+    if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+        throw 'Queue toast message SQL result contained a null MessageId value.'
+    }
+
+    return [pscustomobject]@{
+        MessageId = [long]$messageId
+    }
+}
+
 function Get-ToastObjectPropertyValue {
     param(
         [Parameter(Mandatory)]$InputObject,
@@ -550,7 +609,8 @@ function Invoke-ToastSql {
         $reader = $command.ExecuteReader()
         $table = [System.Data.DataTable]::new()
         $table.Load($reader)
-        return $table
+        Write-Output -NoEnumerate $table
+        return
     }
     finally {
         if ($null -ne $reader) { $reader.Dispose() }
@@ -559,4 +619,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastQueueResult,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters

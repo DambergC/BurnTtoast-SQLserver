@@ -16,9 +16,69 @@ param(
     [Parameter(HelpMessage='Optional button argument, typically an absolute URL or protocol URI.')][string]$ButtonArguments,
     [Parameter(HelpMessage='Button activation type. Use Protocol to open a URI or Dismiss to close the toast.')][ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
 )
+
 Set-StrictMode -Version Latest
 
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
+
+function Resolve-ToastQueueResult {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Result
+    )
+
+    if ($null -eq $Result) {
+        throw 'Queue toast message SQL command returned no result set.'
+    }
+
+    if ($Result -is [System.Data.DataTable]) {
+        if ($Result.Rows.Count -eq 0) {
+            throw 'Queue toast message SQL command returned no rows.'
+        }
+
+        if (-not $Result.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $messageId = $Result.Rows[0]['MessageId']
+        if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+            throw 'Queue toast message SQL result contained a null MessageId value.'
+        }
+
+        return [pscustomobject]@{
+            MessageId = [long]$messageId
+        }
+    }
+
+    if ($Result -is [System.Data.DataRow]) {
+        if (-not $Result.Table.Columns.Contains('MessageId')) {
+            throw 'Queue toast message SQL result must include a MessageId column.'
+        }
+
+        $messageId = $Result['MessageId']
+        if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+            throw 'Queue toast message SQL result contained a null MessageId value.'
+        }
+
+        return [pscustomobject]@{
+            MessageId = [long]$messageId
+        }
+    }
+
+    $messageIdProperty = $Result.PSObject.Properties['MessageId']
+    if ($null -eq $messageIdProperty) {
+        throw 'Queue toast message SQL result must expose a MessageId value.'
+    }
+
+    $messageId = $messageIdProperty.Value
+    if ($null -eq $messageId -or $messageId -is [System.DBNull]) {
+        throw 'Queue toast message SQL result contained a null MessageId value.'
+    }
+
+    return [pscustomobject]@{
+        MessageId = [long]$messageId
+    }
+}
 
 $config = Import-ToastConfig -Path $ConfigPath -RequiredProperties @(
     'SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','Encrypt',
@@ -94,8 +154,6 @@ $result = Invoke-ToastSql `
     -Parameters $params `
     -CommandTimeoutSeconds $config.CommandTimeoutSeconds
 
-if ($null -eq $result -or $result.Rows.Count -eq 0) {
-    throw 'Queue toast message SQL command returned no result set.'
-}
+$queuedResult = Resolve-ToastQueueResult -Result $result
 
-Write-Output "Queued message $($result.Rows[0].MessageId) for group '$GroupName'."
+Write-Output "Queued message $($queuedResult.MessageId) for group '$GroupName'."
