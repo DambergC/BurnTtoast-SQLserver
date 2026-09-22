@@ -35,7 +35,7 @@ Describe 'ToastSql module' {
 
     Context 'config loading' {
         BeforeAll {
-            $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','CommandTimeoutSeconds')
+            $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
             $nullableClientSettings = @('ClientName','InternalPowerShellRepository')
             $nonEmptyClientSettings = @('ClientGroups')
             $originalComputerName = $env:COMPUTERNAME
@@ -66,6 +66,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -88,6 +89,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -110,6 +112,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -129,6 +132,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -149,6 +153,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -169,6 +174,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -189,6 +195,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -209,6 +216,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -233,6 +241,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -256,6 +265,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = `$true
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@
@@ -276,6 +286,7 @@ Describe 'ToastSql module' {
     InternalPowerShellRepository = `$null
     Encrypt = 'false'
     TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }
 "@

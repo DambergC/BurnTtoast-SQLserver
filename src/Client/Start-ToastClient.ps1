@@ -2,7 +2,7 @@
 param([Parameter(Mandatory)][string]$ConfigPath,[switch]$Register,[switch]$Once,[int]$PollSeconds=30)
 Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
-$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','CommandTimeoutSeconds') -NullableProperties @('ClientName','InternalPowerShellRepository') -NonEmptyProperties @('ClientGroups') -ResolveClientName
+$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds') -NullableProperties @('ClientName','InternalPowerShellRepository') -NonEmptyProperties @('ClientGroups') -ResolveClientName
 if(-not (Get-Command New-BurntToastNotification -ErrorAction SilentlyContinue)) {
     if($config.InternalPowerShellRepository){Install-Module BurntToast -Repository $config.InternalPowerShellRepository -Scope CurrentUser -Force}
     else {Write-Warning 'BurntToast is not installed. Install it from your approved repository.'}
