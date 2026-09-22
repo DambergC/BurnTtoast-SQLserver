@@ -13,6 +13,7 @@ $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
 $computer=$config.ClientName
 $deliveryAckRetryDelayMilliseconds = 250
+$displayedToastOccurrences = @{}
 $supportedToastParameters = $null
 function Get-SupportedToastParameters {
     if ($null -eq $script:supportedToastParameters) {
@@ -20,6 +21,14 @@ function Get-SupportedToastParameters {
     }
 
     return $script:supportedToastParameters
+}
+function Get-ToastOccurrenceKey {
+    param(
+        [Parameter(Mandatory)][long]$MessageId,
+        [Parameter(Mandatory)][int]$ShowCount
+    )
+
+    return "${MessageId}:${ShowCount}"
 }
 function Invoke-ToastDeliveryRecord {
     param(
@@ -58,6 +67,18 @@ if($Register){Invoke-Registration;Write-Output "Registered $computer";if($Once){
 function Invoke-Poll {
     $rows=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_GetPendingToast @ComputerName' -Parameters @{ComputerName=$computer} -CommandTimeoutSeconds $config.CommandTimeoutSeconds
     foreach($row in $rows){
+        $occurrenceKey = Get-ToastOccurrenceKey -MessageId $row.MessageId -ShowCount $row.ShowCount
+        if ($script:displayedToastOccurrences.ContainsKey($occurrenceKey)) {
+            try {
+                Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status Delivered -LeaseId $row.LeaseId -RetryOnce
+                [void]$script:displayedToastOccurrences.Remove($occurrenceKey)
+            } catch {
+                Write-Warning "Toast message $($row.MessageId) was already displayed locally but delivery acknowledgement still failed: $($_.Exception.Message)"
+            }
+
+            continue
+        }
+
         try{
             Invoke-ToastNotification -ToastRow $row -SupportedParameters (Get-SupportedToastParameters)
         }catch{
@@ -74,8 +95,13 @@ function Invoke-Poll {
         try {
             Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status Delivered -LeaseId $row.LeaseId -RetryOnce
         } catch {
+            $script:displayedToastOccurrences[$occurrenceKey] = $true
             Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $($_.Exception.Message)"
             continue
+        }
+
+        if ($script:displayedToastOccurrences.ContainsKey($occurrenceKey)) {
+            [void]$script:displayedToastOccurrences.Remove($occurrenceKey)
         }
     }
 }

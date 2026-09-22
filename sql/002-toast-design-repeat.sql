@@ -243,6 +243,7 @@ BEGIN
         Attempts = Attempts + 1,
         ShowCount = @FailureShowCount,
         LastAttemptUtc = @Now,
+        DeliveredUtc = NULL,
         NextShowUtc = @FailureNextShowUtc,
         ErrorMessage = @ErrorMessage,
         LeaseId = NULL,
