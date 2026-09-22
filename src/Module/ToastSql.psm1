@@ -48,6 +48,19 @@ function Import-ToastConfig {
         throw "Failed to load config file '$Path': $($_.Exception.Message) PowerShell data files (.psd1) must contain only static values supported by Import-PowerShellDataFile. Replace dynamic expressions with static values or use ClientName = `$null for automatic local computer-name detection."
     }
 
+    if ($config -isnot [System.Collections.IDictionary]) {
+        throw "Config file '$Path' must contain a top-level hashtable/dictionary."
+    }
+
+    if ($config -isnot [hashtable]) {
+        $normalizedConfig = @{}
+        foreach ($key in $config.Keys) {
+            $normalizedConfig[$key] = $config[$key]
+        }
+
+        $config = $normalizedConfig
+    }
+
     $missing = @($RequiredProperties | Where-Object { -not $config.ContainsKey($_) })
     if ($missing.Count -gt 0) {
         throw "Config file '$Path' is missing required setting(s): $($missing -join ', '). Copy config/config.example.psd1 and define each setting explicitly."
