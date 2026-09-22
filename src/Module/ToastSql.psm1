@@ -1,5 +1,15 @@
 Set-StrictMode -Version Latest
 
+$script:ToastSupportedImageContentTypes = @{
+    'image/png' = '.png'
+    'image/jpeg' = '.jpg'
+    'image/gif' = '.gif'
+    'image/bmp' = '.bmp'
+}
+$script:ToastMaxImageBytes = 5MB
+$script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
+$script:ToastTemporaryFileRetentionMinutes = 60
+
 function Get-ToastSqlCredentialValues {
     param(
         [Parameter(Mandatory)]$SqlCredential,
@@ -64,6 +74,151 @@ function ConvertTo-ToastPositiveInt {
     }
 
     return $normalizedValue
+}
+
+function Get-ToastNormalizedImageContentType {
+    param(
+        [AllowNull()][string]$ContentType
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ContentType)) {
+        return $null
+    }
+
+    $normalizedContentType = $ContentType.Trim().ToLowerInvariant()
+    if ($normalizedContentType -eq 'image/jpg') {
+        return 'image/jpeg'
+    }
+
+    if ($script:ToastSupportedImageContentTypes.ContainsKey($normalizedContentType)) {
+        return $normalizedContentType
+    }
+
+    return $null
+}
+
+function Resolve-ToastImageContentTypeFromPath {
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path)
+    switch ($extension.ToLowerInvariant()) {
+        '.png' { return 'image/png' }
+        '.jpg' { return 'image/jpeg' }
+        '.jpeg' { return 'image/jpeg' }
+        '.gif' { return 'image/gif' }
+        '.bmp' { return 'image/bmp' }
+        default { throw "Unsupported image file extension '$extension'. Supported extensions are .png, .jpg, .jpeg, .gif, and .bmp." }
+    }
+}
+
+function Test-ToastImageSize {
+    param(
+        [Parameter(Mandatory)][byte[]]$ImageBytes,
+        [Parameter(Mandatory)][string]$ParameterName
+    )
+
+    if ($ImageBytes.Length -eq 0) {
+        throw "$ParameterName must not be empty."
+    }
+
+    if ($ImageBytes.Length -gt $script:ToastMaxImageBytes) {
+        throw "$ParameterName exceeds the maximum supported image size of $($script:ToastMaxImageBytes) bytes."
+    }
+}
+
+function Clear-StaleToastTemporaryFiles {
+    $temporaryDirectory = [System.IO.Path]::GetTempPath()
+    $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$script:ToastTemporaryFileRetentionMinutes)
+
+    foreach ($extension in $script:ToastSupportedImageContentTypes.Values) {
+        foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*$extension")) {
+            try {
+                $fileInfo = [System.IO.FileInfo]::new($filePath)
+                if ($fileInfo.LastWriteTimeUtc -lt $cutoffUtc) {
+                    Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
+                }
+            } catch {
+                continue
+            }
+        }
+    }
+}
+
+function Remove-ToastTemporaryFiles {
+    param(
+        [string[]]$Paths = @()
+    )
+
+    foreach ($temporaryFile in $Paths) {
+        if ([string]::IsNullOrWhiteSpace($temporaryFile)) {
+            continue
+        }
+
+        try {
+            if (Test-Path -LiteralPath $temporaryFile) {
+                Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning "Failed to remove temporary toast image '$temporaryFile': $($_.Exception.Message)"
+        }
+    }
+}
+
+function Resolve-ToastImageInput {
+    [CmdletBinding()]
+    param(
+        [string]$FilePath,
+        [byte[]]$ImageBytes,
+        [string]$ContentType,
+        [Parameter(Mandatory)][string]$ParameterName
+    )
+
+    $hasFilePath = -not [string]::IsNullOrWhiteSpace($FilePath)
+    $hasImageBytes = $PSBoundParameters.ContainsKey('ImageBytes') -and $null -ne $ImageBytes
+
+    if ($hasFilePath -and $hasImageBytes) {
+        throw "Specify either $ParameterName file path or direct bytes, not both."
+    }
+
+    if (-not $hasFilePath -and -not $hasImageBytes) {
+        if (-not [string]::IsNullOrWhiteSpace($ContentType)) {
+            throw "$ParameterName content type requires image bytes or a file path."
+        }
+
+        return @{
+            ImageBytes = $null
+            ContentType = $null
+        }
+    }
+
+    if ($hasImageBytes) {
+        $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType $ContentType
+        if ($null -eq $normalizedContentType) {
+            throw "$ParameterName content type is required and must be one of: $($script:ToastSupportedImageContentTypes.Keys -join ', ')."
+        }
+
+        Test-ToastImageSize -ImageBytes $ImageBytes -ParameterName $ParameterName
+        return @{
+            ImageBytes = $ImageBytes
+            ContentType = $normalizedContentType
+        }
+    }
+
+    $resolvedPath = (Resolve-Path -LiteralPath $FilePath -ErrorAction Stop).Path
+    $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType $ContentType
+    $inferredContentType = Resolve-ToastImageContentTypeFromPath -Path $resolvedPath
+    if ($null -ne $normalizedContentType -and $normalizedContentType -ne $inferredContentType) {
+        throw "$ParameterName content type '$normalizedContentType' does not match file extension '$([System.IO.Path]::GetExtension($resolvedPath))'."
+    }
+
+    $resolvedImageBytes = [System.IO.File]::ReadAllBytes($resolvedPath)
+    Test-ToastImageSize -ImageBytes $resolvedImageBytes -ParameterName $ParameterName
+    return @{
+        ImageBytes = $resolvedImageBytes
+        ContentType = if ($null -ne $normalizedContentType) { $normalizedContentType } else { $inferredContentType }
+    }
 }
 
 function Resolve-ToastRepeatSettings {
@@ -230,6 +385,65 @@ function Resolve-ToastQueueResult {
     }
 }
 
+function Add-ToastSqlParameter {
+    param(
+        [Parameter(Mandatory)][System.Data.SqlClient.SqlCommand]$Command,
+        [Parameter(Mandatory)][string]$Name,
+        $Value
+    )
+
+    if ($null -eq $Value) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::NVarChar, 4000)
+        $p.Value = [System.DBNull]::Value
+        return
+    }
+
+    if ($Value -is [byte[]]) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::VarBinary, -1)
+        $p.Value = $Value
+        return
+    }
+
+    if ($Value -is [guid]) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::UniqueIdentifier)
+        $p.Value = $Value
+        return
+    }
+
+    if ($Value -is [datetime]) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::DateTime2)
+        $p.Value = $Value
+        return
+    }
+
+    if ($Value -is [bool]) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::Bit)
+        $p.Value = $Value
+        return
+    }
+
+    if ($Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32]) {
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::Int)
+        $p.Value = [int]$Value
+        return
+    }
+
+    if ($Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]) {
+        if ($Value -is [uint64] -and $Value -gt [uint64][long]::MaxValue) {
+            throw "SQL parameter '$Name' cannot exceed Int64::MaxValue."
+        }
+
+        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::BigInt)
+        $p.Value = [long]$Value
+        return
+    }
+
+    $stringValue = [string]$Value
+    $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1, $stringValue.Length) }
+    $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::NVarChar, $parameterSize)
+    $p.Value = $stringValue
+}
+
 function Get-ToastObjectPropertyValue {
     param(
         [Parameter(Mandatory)]$InputObject,
@@ -243,7 +457,7 @@ function Get-ToastObjectPropertyValue {
                 return $null
             }
 
-            return $value
+            return ,$value
         }
 
         return $null
@@ -256,7 +470,7 @@ function Get-ToastObjectPropertyValue {
             return $null
         }
 
-        return $value
+        return ,$value
     }
 
     return $null
@@ -282,13 +496,51 @@ function Get-ToastNotificationParameters {
     }
 
     $warnings = [System.Collections.Generic.List[string]]::new()
+    $temporaryFiles = [System.Collections.Generic.List[string]]::new()
+    Clear-StaleToastTemporaryFiles
 
     foreach ($mapping in @(
-        @{ PropertyName = 'AppLogoPath'; ParameterName = 'AppLogo' },
-        @{ PropertyName = 'HeroImagePath'; ParameterName = 'HeroImage' },
+        @{ PathPropertyName = 'AppLogoPath'; BytesPropertyName = 'AppLogoBytes'; ContentTypePropertyName = 'AppLogoContentType'; ParameterName = 'AppLogo' },
+        @{ PathPropertyName = 'HeroImagePath'; BytesPropertyName = 'HeroImageBytes'; ContentTypePropertyName = 'HeroImageContentType'; ParameterName = 'HeroImage' },
         @{ PropertyName = 'Sound'; ParameterName = 'Sound' }
     )) {
-        $value = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.PropertyName
+        $value = $null
+        if ($mapping.ContainsKey('PathPropertyName')) {
+            $pathValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.PathPropertyName
+            $imageBytes = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.BytesPropertyName
+            $imageContentType = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.ContentTypePropertyName
+
+            if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
+                if ($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) {
+                    try {
+                        $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType ([string]$imageContentType)
+                        if ($null -eq $normalizedContentType) {
+                            throw "Unsupported $($mapping.ParameterName) content type '$imageContentType'. Supported content types are: $($script:ToastSupportedImageContentTypes.Keys -join ', ')."
+                        }
+
+                        Test-ToastImageSize -ImageBytes $imageBytes -ParameterName $mapping.ParameterName
+                        $temporaryImagePath = Join-Path ([System.IO.Path]::GetTempPath()) "$($script:ToastTemporaryFilePrefix)$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
+                        [System.IO.File]::WriteAllBytes($temporaryImagePath, $imageBytes)
+                        $temporaryFiles.Add($temporaryImagePath)
+                        $value = $temporaryImagePath
+                    } catch {
+                        if (-not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
+                            $warnings.Add("Could not materialize binary $($mapping.ParameterName) for MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId'): $($_.Exception.Message) Falling back to path '$pathValue'.")
+                            $value = [string]$pathValue
+                        } else {
+                            throw
+                        }
+                    }
+                } elseif (-not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
+                    $value = [string]$pathValue
+                }
+            } elseif (($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) -or -not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
+                $warnings.Add("Installed BurntToast does not support parameter '$($mapping.ParameterName)'. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without this option.")
+            }
+        } else {
+            $value = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName $mapping.PropertyName
+        }
+
         if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
             if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
                 $parameters[$mapping.ParameterName] = [string]$value
@@ -340,6 +592,7 @@ function Get-ToastNotificationParameters {
 
     return [pscustomobject]@{
         Parameters = $parameters
+        TemporaryFiles = $temporaryFiles.ToArray()
         Warnings = $warnings.ToArray()
     }
 }
@@ -357,7 +610,12 @@ function Invoke-ToastNotification {
     }
 
     $toastParameters = $toastDetails.Parameters
-    New-BurntToastNotification @toastParameters
+    try {
+        New-BurntToastNotification @toastParameters
+    }
+    finally {
+        Remove-ToastTemporaryFiles -Paths $toastDetails.TemporaryFiles
+    }
 }
 
 function Get-ToastNotificationSupportedParameters {
@@ -563,52 +821,7 @@ function Invoke-ToastSql {
         $command.CommandTimeout = $CommandTimeoutSeconds
 
         foreach ($name in $safeParameters.Keys) {
-            $value = $safeParameters[$name]
-
-            if ($null -eq $value) {
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, 4000)
-                $p.Value = [System.DBNull]::Value
-                continue
-            }
-
-            if ($value -is [guid]) {
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::UniqueIdentifier)
-                $p.Value = $value
-                continue
-            }
-
-            if ($value -is [datetime]) {
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::DateTime2)
-                $p.Value = $value
-                continue
-            }
-
-            if ($value -is [bool]) {
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::Bit)
-                $p.Value = $value
-                continue
-            }
-
-            if ($value -is [byte] -or $value -is [sbyte] -or $value -is [int16] -or $value -is [uint16] -or $value -is [int32]) {
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::Int)
-                $p.Value = [int]$value
-                continue
-            }
-
-            if ($value -is [uint32] -or $value -is [int64] -or $value -is [uint64]) {
-                if ($value -is [uint64] -and $value -gt [uint64][long]::MaxValue) {
-                    throw "SQL parameter '$name' cannot exceed Int64::MaxValue."
-                }
-
-                $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::BigInt)
-                $p.Value = [long]$value
-                continue
-            }
-
-            $stringValue = [string]$value
-            $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1, $stringValue.Length) }
-            $p = $command.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, $parameterSize)
-            $p.Value = $stringValue
+            Add-ToastSqlParameter -Command $command -Name $name -Value $safeParameters[$name]
         }
 
         if ($NonQuery) {

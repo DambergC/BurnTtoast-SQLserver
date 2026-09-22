@@ -130,6 +130,26 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'image input resolution' {
+        It 'reads image bytes from a file path and infers the content type' {
+            InModuleScope ToastSql {
+                $filePath = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-test-$([guid]::NewGuid().ToString('N')).png"
+                $expectedBytes = [byte[]](137,80,78,71,13,10,26,10)
+
+                try {
+                    [System.IO.File]::WriteAllBytes($filePath, $expectedBytes)
+
+                    $result = Resolve-ToastImageInput -FilePath $filePath -ParameterName 'AppLogo'
+
+                    $result.ContentType | Should -Be 'image/png'
+                    ($result.ImageBytes -join ',') | Should -Be ($expectedBytes -join ',')
+                } finally {
+                    Remove-Item -LiteralPath $filePath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
     Context 'toast notification parameter building' {
         It 'builds BurntToast parameters from optional toast metadata' {
             $row = [pscustomobject]@{
@@ -165,6 +185,29 @@ Describe 'ToastSql module' {
 
             $result.Parameters.ContainsKey('Text') | Should -Be $true
             $result.Parameters.ContainsKey('Sound') | Should -Be $false
+        }
+
+        It 'materializes binary image data to a temporary client file' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                AppLogoContentType = 'image/png'
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
+
+            try {
+                $result.Parameters.AppLogo | Should -Match 'BurnTtoast-SQLserver-'
+                [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
+                (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
+                $result.TemporaryFiles.Count | Should -Be 1
+            } finally {
+                foreach ($temporaryFile in $result.TemporaryFiles) {
+                    Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                }
+            }
         }
 
         It 'adds a button when supported and available' {
@@ -335,38 +378,125 @@ Describe 'ToastSql module' {
 
     Context 'parameter binding' {
         It 'adds all supplied parameters to the SQL command' {
-            $params = @{
-                GroupName = 'g'
-                Title = 't'
-                Body = 'b'
-                Sound = $null
-                IsUrgent = $false
-                RepeatIntervalSeconds = $null
-                RepeatCount = $null
-                ButtonText = $null
-                ButtonArguments = $null
-                ButtonActivationType = $null
-            }
+            $cmd = InModuleScope ToastSql {
+                $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
+                foreach ($name in @('GroupName','Title','Body','Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount','ButtonText','ButtonArguments','ButtonActivationType')) {
+                    $value = switch ($name) {
+                        'GroupName' { 'g' }
+                        'Title' { 't' }
+                        'Body' { 'b' }
+                        'IsUrgent' { $false }
+                        default { $null }
+                    }
 
-            $cmd = [System.Data.SqlClient.SqlCommand]::new()
-            foreach ($name in $params.Keys) {
-                $value = $params[$name]
-                if ($null -eq $value) {
-                    $p = $cmd.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, 4000)
-                    $p.Value = [System.DBNull]::Value
-                    continue
+                    Add-ToastSqlParameter -Command $moduleCmd -Name $name -Value $value
                 }
 
-                $stringValue = [string]$value
-                $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1, $stringValue.Length) }
-                $p = $cmd.Parameters.Add("@$name", [System.Data.SqlDbType]::NVarChar, $parameterSize)
-                $p.Value = $stringValue
+                $moduleCmd
             }
 
             $cmd.Parameters.Contains('@GroupName') | Should -Be $true
             $cmd.Parameters.Contains('@Title') | Should -Be $true
             $cmd.Parameters.Contains('@Body') | Should -Be $true
             $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
+        }
+
+        It 'binds byte arrays as VarBinary max parameters' {
+            $parameter = InModuleScope ToastSql {
+                $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
+                Add-ToastSqlParameter -Command $moduleCmd -Name 'AppLogoBytes' -Value ([byte[]](1,2,3,4))
+                $moduleCmd.Parameters['@AppLogoBytes']
+            }
+
+            $parameter.SqlDbType | Should -Be ([System.Data.SqlDbType]::VarBinary)
+            $parameter.Size | Should -Be -1
+            ($parameter.Value -join ',') | Should -Be '1,2,3,4'
+        }
+    }
+
+    Context 'toast notification cleanup' {
+        It 'removes temporary binary image files after showing a toast' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo
+                    )
+                }
+
+                Mock New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo
+                    )
+
+                    $script:capturedAppLogoPath = $AppLogo
+                    Test-Path -LiteralPath $AppLogo | Should -Be $true
+                }
+
+                try {
+                    $script:capturedAppLogoPath = $null
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                        AppLogoContentType = 'image/png'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo')
+
+                    $script:capturedAppLogoPath | Should -Not -BeNullOrEmpty
+                    (Test-Path -LiteralPath $script:capturedAppLogoPath) | Should -Be $false
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    if ($script:capturedAppLogoPath) {
+                        Remove-Item -LiteralPath $script:capturedAppLogoPath -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+        }
+
+        It 'removes temporary binary image files when BurntToast throws' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo
+                    )
+                }
+
+                Mock New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo
+                    )
+
+                    $script:capturedFailureAppLogoPath = $AppLogo
+                    throw 'boom'
+                }
+
+                try {
+                    $script:capturedFailureAppLogoPath = $null
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                        AppLogoContentType = 'image/png'
+                    }
+
+                    { Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo') } | Should -Throw 'boom'
+
+                    $script:capturedFailureAppLogoPath | Should -Not -BeNullOrEmpty
+                    (Test-Path -LiteralPath $script:capturedFailureAppLogoPath) | Should -Be $false
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    if ($script:capturedFailureAppLogoPath) {
+                        Remove-Item -LiteralPath $script:capturedFailureAppLogoPath -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
         }
     }
 
@@ -417,9 +547,17 @@ Describe 'ToastSql module' {
             $repeatScriptText | Should -Match "@LeaseId uniqueidentifier"
             $repeatScriptText | Should -Match "inserted\.LeaseId"
             $repeatScriptText | Should -Match "inserted\.ShowCount"
+            $repeatScriptText | Should -Match "@AppLogoBytes varbinary\(max\) = NULL"
+            $repeatScriptText | Should -Match "@AppLogoContentType varchar\(100\) = NULL"
+            $repeatScriptText | Should -Match "@HeroImageBytes varbinary\(max\) = NULL"
+            $repeatScriptText | Should -Match "@HeroImageContentType varchar\(100\) = NULL"
 
             $buttonScriptText | Should -Match "@AppLogoPath nvarchar\(1024\) = NULL"
             $buttonScriptText | Should -Match "@HeroImagePath nvarchar\(1024\) = NULL"
+            $buttonScriptText | Should -Match "@AppLogoBytes varbinary\(max\) = NULL"
+            $buttonScriptText | Should -Match "@AppLogoContentType varchar\(100\) = NULL"
+            $buttonScriptText | Should -Match "@HeroImageBytes varbinary\(max\) = NULL"
+            $buttonScriptText | Should -Match "@HeroImageContentType varchar\(100\) = NULL"
             $buttonScriptText | Should -Match "@Sound varchar\(20\) = NULL"
             $buttonScriptText | Should -Match "@IsUrgent bit = 0"
             $buttonScriptText | Should -Match "@RepeatIntervalSeconds int = NULL"
@@ -427,6 +565,8 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@ButtonText nvarchar\(200\) = NULL"
             $buttonScriptText | Should -Match "@ButtonArguments nvarchar\(2048\) = NULL"
             $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
+            $buttonScriptText | Should -Match "m\.AppLogoBytes"
+            $buttonScriptText | Should -Match "m\.HeroImageBytes"
         }
     }
 }

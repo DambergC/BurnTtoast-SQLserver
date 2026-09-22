@@ -61,9 +61,43 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
   -Urgent
 ```
 
+- `AppLogoPath` och `HeroImagePath` är kvar för bakåtkompatibilitet och fungerar som tidigare när **klientdatorn** kan läsa sökvägen, till exempel en lokal fil eller UNC-sökväg.
+- `AppLogoFilePath` och `HeroImageFilePath` läser i stället in bilden på servern, sparar bytes i SQL Server (`varbinary(max)`), och klienten materialiserar sedan en temporär lokal fil innan BurntToast anropas.
+- `AppLogoBytes`/`HeroImageBytes` kan användas för direkt byte-arrayinput om du redan har läst in bilden i PowerShell. Ange då även `AppLogoContentType`/`HeroImageContentType`.
+- Stödda content types för binära bilder är `image/png`, `image/jpeg`, `image/gif` och `image/bmp`. Aliaset `image/jpg` normaliseras till `image/jpeg`.
+- Maximal binär bildstorlek är **5 MB per bild** i både PowerShell och SQL-valideringen.
+- Binära bilder materialiseras till temporära filer på klienten och tas bort direkt efter att BurntToast har anropats. Klienter behöver därför inte längre läsa serverns bildsökväg när binära bilder används.
 - `AppLogoPath` och `HeroImagePath` måste vara sökvägar som **klientdatorn** kan läsa när toasten visas, till exempel en lokal fil eller UNC-sökväg. Server-lokala sökvägar fungerar bara om exakt samma sökväg finns och är åtkomlig på klienten.
 - `Sound` valideras mot BurntToast-värdena `Default`, `IM`, `Mail`, `Reminder`, `SMS`, `Alarm`, `Alarm2`-`Alarm10` och `Call`, `Call2`-`Call10`.
 - Repositoriet använder den dokumenterade BurntToast-parametern `-Urgent` för förhöjda/noterbara toastar. Om en installerad BurntToast-version saknar något optionalt argument visas toasten ändå med titel/brödtext och klienten loggar en tydlig varning.
+
+Exempel med binära bilder lagrade i SQL:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Underhåll i kväll' `
+  -Body 'VPN-tjänsten startas om 22:00.' `
+  -AppLogoFilePath 'C:\Assets\logo.png' `
+  -HeroImageFilePath 'C:\Assets\maintenance.jpg' `
+  -Sound Reminder `
+  -Urgent
+```
+
+Exempel med direkt byte-arrayinput:
+
+```powershell
+$logoBytes = [System.IO.File]::ReadAllBytes('C:\Assets\logo.png')
+
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Policy uppdaterad' `
+  -Body 'Klicka för att läsa mer.' `
+  -AppLogoBytes $logoBytes `
+  -AppLogoContentType 'image/png'
+```
 
 ## Upprepade meddelanden
 
@@ -152,6 +186,8 @@ FROM dbo.vw_ToastMessageLocal;
 - Använd separata least-privilege-konton för admin och klient.
 - Använd parametriserade SQL-kommandon; ändra inte scriptet till strängkonkatenering.
 - BurntToast från PSGallery bör ersättas av en internt signerad eller speglad paketkälla i produktion.
+- Binära bilder lagras i databasen. Planera därför för ökat lagringsbehov, backupstorlek och eventuell rensning av gamla toast-rader om stora bilder används ofta.
+- Om du uppgraderar en befintlig installation räcker det att köra `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` igen för att lägga till de nya binärkolumnerna och procedurparametrarna. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
 
 ## Felsökning
 
