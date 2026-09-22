@@ -76,8 +76,10 @@ function Import-ToastConfig {
         throw "Config file '$Path' must define at least one value for: $($emptyCollections -join ', ')."
     }
 
-    if ($config.ContainsKey('UseIntegratedSecurity') -and $config['UseIntegratedSecurity'] -isnot [bool]) {
-        throw "Config file '$Path' setting UseIntegratedSecurity must be `$true or `$false."
+    foreach ($booleanSetting in @('UseIntegratedSecurity','Encrypt','TrustServerCertificate')) {
+        if ($config.ContainsKey($booleanSetting) -and $config[$booleanSetting] -isnot [bool]) {
+            throw "Config file '$Path' setting $booleanSetting must be `$true or `$false."
+        }
     }
 
     if ($config.ContainsKey('UseIntegratedSecurity') -and -not $config['UseIntegratedSecurity']) {
@@ -89,6 +91,10 @@ function Import-ToastConfig {
     }
 
     if ($ResolveClientName) {
+        if (-not $config.ContainsKey('ClientName')) {
+            throw "Config file '$Path' must define ClientName when automatic client-name resolution is enabled."
+        }
+
         $clientName = $config['ClientName']
         if ($null -ne $clientName -and $clientName -isnot [string]) {
             throw "Config file '$Path' setting ClientName must be a string or `$null."
