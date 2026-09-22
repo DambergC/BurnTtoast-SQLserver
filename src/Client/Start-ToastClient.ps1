@@ -83,6 +83,7 @@ function Invoke-Poll {
                 Invoke-ToastDeliveryRecord -MessageId $row.MessageId -Status Delivered -LeaseId $row.LeaseId -RetryOnce
                 [void]$script:displayedToastOccurrences.Remove($occurrenceKey)
             } catch {
+                $script:displayedToastOccurrences[$occurrenceKey] = [datetime]::UtcNow
                 Write-Warning "Toast message $($row.MessageId) was already displayed locally but delivery acknowledgement still failed: $($_.Exception.Message)"
             }
 
