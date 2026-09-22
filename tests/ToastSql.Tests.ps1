@@ -296,6 +296,37 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'warns and skips button creation when Button is unsupported' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocationCount = 0
+                function New-BTButton {
+                    $global:ButtonInvocationCount++
+                    return [pscustomobject]@{ Kind = 'Button' }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 272
+                        Title = 'Unsupported button title'
+                        Body = 'Unsupported button body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.test/unsupported'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
+
+                    $global:ButtonInvocationCount | Should -Be 0
+                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
+                    $result.Warnings.Count | Should -Be 1
+                    $result.Warnings[0] | Should -Match 'without a button'
+                } finally {
+                    Remove-Variable ButtonInvocationCount -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
             InModuleScope ToastSql {
                 $global:ToastWarnings = @()
