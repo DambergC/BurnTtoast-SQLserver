@@ -165,6 +165,7 @@ BEGIN
     DECLARE @RepeatCount int;
     DECLARE @ExpiresUtc datetime2(0);
     DECLARE @ShowCount int;
+    DECLARE @Attempts int;
     DECLARE @FailureNextShowUtc datetime2(0);
     DECLARE @FailureStatus varchar(20);
 
@@ -172,7 +173,8 @@ BEGIN
         @RepeatIntervalSeconds = m.RepeatIntervalSeconds,
         @RepeatCount = m.RepeatCount,
         @ExpiresUtc = m.ExpiresUtc,
-        @ShowCount = d.ShowCount
+        @ShowCount = d.ShowCount,
+        @Attempts = d.Attempts
     FROM dbo.ToastDelivery d
     INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
     WHERE d.MessageId = @MessageId
@@ -185,8 +187,9 @@ BEGIN
     BEGIN
         DECLARE @NewShowCount int = @ShowCount + 1;
         DECLARE @NextShowUtc datetime2(0) = NULL;
+        DECLARE @NextAttemptNumber int = @Attempts + 1;
 
-        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NewShowCount < @RepeatCount
+        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NextAttemptNumber < @RepeatCount
         BEGIN
             SET @NextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
 
@@ -216,7 +219,7 @@ BEGIN
     SET @FailureStatus = @Status;
     SET @FailureNextShowUtc = @Now;
 
-    IF @Status = 'Failed' AND @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @ShowCount < @RepeatCount
+    IF @Status = 'Failed' AND @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND (@Attempts + 1) < @RepeatCount
     BEGIN
         SET @FailureNextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
 

@@ -82,7 +82,7 @@ Ett meddelande är fortfarande engångsvisning per klient när repeat-parametrar
 
 Semantik för repeat:
 
-- `RepeatCount` är **totalt** antal visningar per klient, inklusive första visningen. `RepeatCount 3` betyder alltså första toasten + två upprepningar.
+- `RepeatCount` är **totalt** antal schemalagda toast-tillfällen per klient, inklusive första försöket. `RepeatCount 3` betyder alltså första tillfället + två senare tillfällen. Misslyckade repeat-försök förbrukar också ett tillfälle.
 - Ange antingen `-RepeatIntervalSeconds` eller `-RepeatIntervalMinutes` tillsammans med `-RepeatCount`.
 - Om nästa planerade visning skulle inträffa på eller efter `ExpiresUtc` stoppas återstående upprepningar för den klienten.
 - Om en klient misslyckas med att visa en repeat-toast sparas felmeddelandet och klienten försöker igen vid nästa repeat-intervall så länge det finns återstående visningar och meddelandet inte har gått ut.
