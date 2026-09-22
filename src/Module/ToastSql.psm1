@@ -218,6 +218,15 @@ function Invoke-ToastNotification {
     New-BurntToastNotification @toastParameters
 }
 
+function Get-ToastNotificationSupportedParameters {
+    [CmdletBinding()]
+    param(
+        [string]$CommandName = 'New-BurntToastNotification'
+    )
+
+    return (Get-Command $CommandName -ErrorAction Stop).Parameters.Keys
+}
+
 function Get-ToastSqlCredential {
     param([hashtable]$Config)
 
@@ -423,7 +432,8 @@ function Invoke-ToastSql {
             }
 
             $stringValue = [string]$value
-            $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,[math]::Max(1,[math]::Min(4000,$stringValue.Length)))
+            $parameterSize = if ($stringValue.Length -gt 4000) { -1 } else { [math]::Max(1,$stringValue.Length) }
+            $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,$parameterSize)
             $p.Value=$stringValue
         }
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
@@ -435,4 +445,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters,Invoke-ToastNotification
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters,Invoke-ToastNotification,Get-ToastNotificationSupportedParameters

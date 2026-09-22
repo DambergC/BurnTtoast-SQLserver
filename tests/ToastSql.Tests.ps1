@@ -218,6 +218,31 @@ Describe 'ToastSql module' {
                 }
             }
         }
+
+        It 'derives supported BurntToast parameter names from command discovery' {
+            InModuleScope ToastSql {
+                function Get-Command {
+                    param([string]$Name)
+                    if ($Name -ne 'New-BurntToastNotification') {
+                        throw "Unexpected command name: $Name"
+                    }
+
+                    return [pscustomobject]@{
+                        Parameters = [ordered]@{
+                            Text = $null
+                            AppLogo = $null
+                            HeroImage = $null
+                        }
+                    }
+                }
+
+                try {
+                    @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','AppLogo','HeroImage')
+                } finally {
+                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'config loading' {
