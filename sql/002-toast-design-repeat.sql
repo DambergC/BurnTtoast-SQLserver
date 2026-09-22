@@ -165,7 +165,7 @@ BEGIN
     DECLARE @RepeatCount int;
     DECLARE @ExpiresUtc datetime2(0);
     DECLARE @ShowCount int;
-    DECLARE @Attempts int;
+    DECLARE @FailureShowCount int;
     DECLARE @FailureNextShowUtc datetime2(0);
     DECLARE @FailureStatus varchar(20);
 
@@ -173,8 +173,7 @@ BEGIN
         @RepeatIntervalSeconds = m.RepeatIntervalSeconds,
         @RepeatCount = m.RepeatCount,
         @ExpiresUtc = m.ExpiresUtc,
-        @ShowCount = d.ShowCount,
-        @Attempts = d.Attempts
+        @ShowCount = d.ShowCount
     FROM dbo.ToastDelivery d
     INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
     WHERE d.MessageId = @MessageId
@@ -187,9 +186,8 @@ BEGIN
     BEGIN
         DECLARE @NewShowCount int = @ShowCount + 1;
         DECLARE @NextShowUtc datetime2(0) = NULL;
-        DECLARE @NextOccurrenceNumber int = @Attempts + 1;
 
-        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NextOccurrenceNumber < @RepeatCount
+        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NewShowCount < @RepeatCount
         BEGIN
             SET @NextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
 
@@ -218,20 +216,27 @@ BEGIN
 
     SET @FailureStatus = @Status;
     SET @FailureNextShowUtc = @Now;
+    SET @FailureShowCount = @ShowCount;
 
-    IF @Status = 'Failed' AND @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND (@Attempts + 1) < @RepeatCount
+    IF @Status = 'Failed'
     BEGIN
-        SET @FailureNextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
+        SET @FailureShowCount = @ShowCount + 1;
 
-        IF @ExpiresUtc IS NULL OR @FailureNextShowUtc < @ExpiresUtc
-            SET @FailureStatus = 'Pending';
-        ELSE
-            SET @FailureNextShowUtc = @Now;
+        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @FailureShowCount < @RepeatCount
+        BEGIN
+            SET @FailureNextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
+
+            IF @ExpiresUtc IS NULL OR @FailureNextShowUtc < @ExpiresUtc
+                SET @FailureStatus = 'Pending';
+            ELSE
+                SET @FailureNextShowUtc = @Now;
+        END
     END
 
     UPDATE dbo.ToastDelivery
     SET Status = @FailureStatus,
         Attempts = Attempts + 1,
+        ShowCount = @FailureShowCount,
         LastAttemptUtc = @Now,
         NextShowUtc = @FailureNextShowUtc,
         ErrorMessage = @ErrorMessage,
