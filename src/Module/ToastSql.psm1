@@ -124,6 +124,10 @@ function Test-ToastSqlPort {
 function Get-ToastConnectionString {
     param([hashtable]$Config)
     foreach ($booleanSetting in @('UseIntegratedSecurity','Encrypt','TrustServerCertificate')) {
+        if (-not $Config.ContainsKey($booleanSetting)) {
+            throw "Config setting $booleanSetting is required."
+        }
+
         if ($Config[$booleanSetting] -isnot [bool]) {
             throw "Config setting $booleanSetting must be `$true or `$false."
         }
@@ -153,12 +157,18 @@ function Get-ToastConnectionString {
 function Invoke-ToastSql {
     param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
+    $command = $null
+    $reader = $null
     try {
         $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
         foreach($name in $Parameters.Keys) { $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000); $p.Value=if($null -eq $Parameters[$name]) {[DBNull]::Value} else {$Parameters[$name]} }
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
         $reader=$command.ExecuteReader(); $table=[System.Data.DataTable]::new(); $table.Load($reader); return $table
-    } finally {$connection.Dispose()}
+    } finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $command) { $command.Dispose() }
+        $connection.Dispose()
+    }
 }
 
 Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Invoke-ToastSql
