@@ -138,6 +138,7 @@ function Get-ToastConnectionString {
     $builder['Initial Catalog'] = $Config.SqlDatabase
     $builder['Encrypt'] = $Config.Encrypt
     $builder['TrustServerCertificate'] = $Config.TrustServerCertificate
+    $builder['Connect Timeout'] = [int]$Config.CommandTimeoutSeconds
 
     if ($Config.UseIntegratedSecurity) {
         $builder['Integrated Security'] = $true
