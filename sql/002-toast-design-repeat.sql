@@ -187,9 +187,9 @@ BEGIN
     BEGIN
         DECLARE @NewShowCount int = @ShowCount + 1;
         DECLARE @NextShowUtc datetime2(0) = NULL;
-        DECLARE @NextAttemptNumber int = @Attempts + 1;
+        DECLARE @NextOccurrenceNumber int = @Attempts + 1;
 
-        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NextAttemptNumber < @RepeatCount
+        IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NOT NULL AND @NextOccurrenceNumber < @RepeatCount
         BEGIN
             SET @NextShowUtc = DATEADD(second, @RepeatIntervalSeconds, @Now);
 

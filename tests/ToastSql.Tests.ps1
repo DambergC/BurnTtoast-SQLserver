@@ -174,6 +174,50 @@ Describe 'ToastSql module' {
             $result.Parameters.Text | Should -Be @('DBNull title','DBNull body')
             $result.Warnings.Count | Should -Be 0
         }
+
+        It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
+            InModuleScope ToastSql {
+                $global:ToastWarnings = @()
+                function Write-Warning {
+                    param([string]$Message)
+                    $global:ToastWarnings += $Message
+                }
+
+                function New-BurntToastNotification {
+                    param($Text,$AppLogo,$HeroImage,$Sound,[switch]$Urgent)
+                    $global:ToastInvocation = @{}
+                    foreach ($key in $PSBoundParameters.Keys) {
+                        $global:ToastInvocation[$key] = $PSBoundParameters[$key]
+                    }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 55
+                        Title = 'Helper title'
+                        Body = 'Helper body'
+                        AppLogoPath = 'C:\Toast\helper-logo.png'
+                        HeroImagePath = 'C:\Toast\helper-hero.png'
+                        Sound = 'Reminder'
+                        IsUrgent = $true
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo')
+
+                    $global:ToastWarnings.Count | Should -Be 3
+                    $global:ToastInvocation.Text | Should -Be @('Helper title','Helper body')
+                    $global:ToastInvocation.AppLogo | Should -Be 'C:\Toast\helper-logo.png'
+                    $global:ToastInvocation.ContainsKey('HeroImage') | Should -BeFalse
+                    $global:ToastInvocation.ContainsKey('Sound') | Should -BeFalse
+                    $global:ToastInvocation.ContainsKey('Urgent') | Should -BeFalse
+                } finally {
+                    Remove-Variable ToastWarnings -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Variable ToastInvocation -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Write-Warning -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'config loading' {

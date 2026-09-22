@@ -202,6 +202,22 @@ function Get-ToastNotificationParameters {
     }
 }
 
+function Invoke-ToastNotification {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$ToastRow,
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent')
+    )
+
+    $toastDetails = Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
+    foreach ($warning in $toastDetails.Warnings) {
+        Write-Warning $warning
+    }
+
+    $toastParameters = $toastDetails.Parameters
+    New-BurntToastNotification @toastParameters
+}
+
 function Get-ToastSqlCredential {
     param([hashtable]$Config)
 
@@ -368,7 +384,48 @@ function Invoke-ToastSql {
     try {
         if ($null -ne $SqlCredential) { $connection.Credential = $SqlCredential }
         $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
-        foreach($name in $Parameters.Keys) { $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000); $p.Value=if($null -eq $Parameters[$name]) {[DBNull]::Value} else {$Parameters[$name]} }
+        foreach($name in $Parameters.Keys) {
+            $value = $Parameters[$name]
+            if ($null -eq $value) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000)
+                $p.Value = [DBNull]::Value
+                continue
+            }
+
+            if ($value -is [guid]) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::UniqueIdentifier)
+                $p.Value=$value
+                continue
+            }
+
+            if ($value -is [datetime]) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::DateTime2)
+                $p.Value=$value
+                continue
+            }
+
+            if ($value -is [bool]) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::Bit)
+                $p.Value=$value
+                continue
+            }
+
+            if ($value -is [byte] -or $value -is [sbyte] -or $value -is [int16] -or $value -is [uint16] -or $value -is [int32]) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::Int)
+                $p.Value=[int]$value
+                continue
+            }
+
+            if ($value -is [uint32] -or $value -is [int64] -or $value -is [uint64]) {
+                $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::BigInt)
+                $p.Value=[long]$value
+                continue
+            }
+
+            $stringValue = [string]$value
+            $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,[math]::Max(1,[math]::Min(4000,$stringValue.Length)))
+            $p.Value=$stringValue
+        }
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
         $reader=$command.ExecuteReader(); $table=[System.Data.DataTable]::new(); $table.Load($reader); return $table
     } finally {
@@ -378,4 +435,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Get-ToastNotificationParameters,Invoke-ToastNotification

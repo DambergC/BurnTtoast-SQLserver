@@ -29,7 +29,7 @@ $params=@{
     AppLogoPath=if([string]::IsNullOrWhiteSpace($AppLogoPath)){$null}else{$AppLogoPath}
     HeroImagePath=if([string]::IsNullOrWhiteSpace($HeroImagePath)){$null}else{$HeroImagePath}
     Sound=if([string]::IsNullOrWhiteSpace($Sound)){$null}else{$Sound}
-    IsUrgent=if($Urgent){1}else{0}
+    IsUrgent=$Urgent.IsPresent
     RepeatIntervalSeconds=$repeatSettings.RepeatIntervalSeconds
     RepeatCount=$repeatSettings.RepeatCount
 }
