@@ -4,13 +4,14 @@
     SqlDatabase = 'ToastNotifications'
     SqlPort = 1433
     UseIntegratedSecurity = $true
-    # Only use when required; obtain credentials interactively or from a secure vault.
+    # When UseIntegratedSecurity = $false, provide a static hashtable with UserName and Password or inject a PSCredential at runtime.
     SqlCredential = $null
-    ClientName = $env:COMPUTERNAME
+    # PSD1 values must be static. Leave as $null to auto-detect the local computer name in the client script.
+    ClientName = $null
     ClientGroups = @('IT-TEST')
-    BurntToastModulePath = $null
     InternalPowerShellRepository = $null
     Encrypt = $true
     TrustServerCertificate = $false
+    ConnectTimeoutSeconds = 15
     CommandTimeoutSeconds = 15
 }

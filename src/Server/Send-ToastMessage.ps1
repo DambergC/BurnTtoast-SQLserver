@@ -7,11 +7,12 @@ param(
  [datetime]$ExpiresUtc
 )
 Set-StrictMode -Version Latest
-$config=Import-PowerShellDataFile $ConfigPath
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
+$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
 Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
+$sqlCredential=Get-ToastSqlCredential $config
 $sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc'
 $params=@{GroupName=$GroupName;Title=$Title;Body=$Body;ExpiresUtc=if($ExpiresUtc){$ExpiresUtc.ToUniversalTime()}else{$null}}
-$result=Invoke-ToastSql -ConnectionString $conn -CommandText $sql -Parameters $params
+$result=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters $params -CommandTimeoutSeconds $config.CommandTimeoutSeconds
 Write-Output "Queued message $($result.MessageId) for group '$GroupName'."
