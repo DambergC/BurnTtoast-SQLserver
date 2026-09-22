@@ -32,6 +32,31 @@ function Get-ToastSqlCredentialValues {
     throw "Config file '$Path' setting SqlCredential must be a PSCredential or a hashtable with UserName and Password when UseIntegratedSecurity = `$false."
 }
 
+function ConvertTo-ToastPositiveInt {
+    param(
+        [Parameter(Mandatory)]$Value,
+        [Parameter(Mandatory)][string]$SettingName,
+        [string]$Path = 'configuration'
+    )
+
+    $isIntegral = $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]
+    if (-not $isIntegral) {
+        throw "Config file '$Path' setting $SettingName must be a positive integer."
+    }
+
+    try {
+        $normalizedValue = [int]$Value
+    } catch {
+        throw "Config file '$Path' setting $SettingName must be a positive integer."
+    }
+
+    if ($normalizedValue -le 0) {
+        throw "Config file '$Path' setting $SettingName must be a positive integer."
+    }
+
+    return $normalizedValue
+}
+
 function Get-ToastSqlCredential {
     param([hashtable]$Config)
 
@@ -114,9 +139,7 @@ function Import-ToastConfig {
 
     foreach ($positiveIntegerSetting in @('ConnectTimeoutSeconds','CommandTimeoutSeconds')) {
         if ($config.ContainsKey($positiveIntegerSetting)) {
-            if ($config[$positiveIntegerSetting] -isnot [int] -or $config[$positiveIntegerSetting] -le 0) {
-                throw "Config file '$Path' setting $positiveIntegerSetting must be a positive integer."
-            }
+            $config[$positiveIntegerSetting] = ConvertTo-ToastPositiveInt -Value $config[$positiveIntegerSetting] -SettingName $positiveIntegerSetting -Path $Path
         }
     }
 
@@ -173,11 +196,7 @@ function Get-ToastConnectionString {
 
     $connectTimeoutSeconds = 15
     if ($Config.ContainsKey('ConnectTimeoutSeconds')) {
-        if ($Config['ConnectTimeoutSeconds'] -isnot [int] -or $Config['ConnectTimeoutSeconds'] -le 0) {
-            throw "Config setting ConnectTimeoutSeconds must be a positive integer."
-        }
-
-        $connectTimeoutSeconds = $Config['ConnectTimeoutSeconds']
+        $connectTimeoutSeconds = ConvertTo-ToastPositiveInt -Value $Config['ConnectTimeoutSeconds'] -SettingName 'ConnectTimeoutSeconds'
     }
 
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
