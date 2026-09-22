@@ -41,6 +41,217 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'repeat settings' {
+        It 'keeps one-time messages unchanged when repeat settings are omitted' {
+            $result = Resolve-ToastRepeatSettings
+
+            $result.RepeatIntervalSeconds | Should -Be $null
+            $result.RepeatCount | Should -Be $null
+        }
+
+        It 'normalizes minute-based repeats to seconds' {
+            $result = Resolve-ToastRepeatSettings -RepeatIntervalMinutes 5 -RepeatCount 3
+
+            $result.RepeatIntervalSeconds | Should -Be 300
+            $result.RepeatCount | Should -Be 3
+        }
+
+        It 'preserves second-based repeats unchanged' {
+            $result = Resolve-ToastRepeatSettings -RepeatIntervalSeconds 45 -RepeatCount 3
+
+            $result.RepeatIntervalSeconds | Should -Be 45
+            $result.RepeatCount | Should -Be 3
+        }
+
+        It 'rejects repeat counts without an interval' {
+            { Resolve-ToastRepeatSettings -RepeatCount 2 } | Should -Throw '*RepeatIntervalSeconds or RepeatIntervalMinutes is required*'
+        }
+
+        It 'rejects interval-based repeats without a repeat count' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 } | Should -Throw '*RepeatCount is required*'
+        }
+
+        It 'rejects repeat counts smaller than two' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 -RepeatCount 1 } | Should -Throw '*RepeatCount must be 2 or greater*'
+        }
+
+        It 'rejects multiple repeat interval units at the same time' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalSeconds 60 -RepeatIntervalMinutes 1 -RepeatCount 2 } | Should -Throw '*either RepeatIntervalSeconds or RepeatIntervalMinutes*'
+        }
+
+        It 'rejects oversized repeat intervals in minutes' {
+            { Resolve-ToastRepeatSettings -RepeatIntervalMinutes 35791395 -RepeatCount 2 } | Should -Throw '*RepeatIntervalMinutes is too large*'
+        }
+    }
+
+    Context 'toast notification parameter building' {
+        It 'builds BurntToast parameters from optional toast metadata' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                HeroImagePath = 'C:\Toast\hero.png'
+                Sound = 'Reminder'
+                IsUrgent = $true
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            $result.Warnings.Count | Should -Be 0
+            $result.Parameters.Text | Should -Be @('Title','Body')
+            $result.Parameters.AppLogo | Should -Be 'C:\Toast\logo.png'
+            $result.Parameters.HeroImage | Should -Be 'C:\Toast\hero.png'
+            $result.Parameters.Sound | Should -Be 'Reminder'
+            $result.Parameters.Urgent | Should -BeTrue
+        }
+
+        It 'skips unsupported optional BurntToast parameters with a warning' {
+            $row = [pscustomobject]@{
+                MessageId = 7
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                HeroImagePath = $null
+                Sound = ''
+                IsUrgent = $true
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
+
+            @($result.Parameters.Keys) | Should -Be @('Text')
+            $result.Warnings.Count | Should -Be 2
+            $result.Warnings[0] | Should -Match "AppLogo"
+            $result.Warnings[1] | Should -Match "Urgent"
+        }
+
+        It 'supports DataRow inputs from SQL results' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+            [void]$table.Columns.Add('Title', [string])
+            [void]$table.Columns.Add('Body', [string])
+            [void]$table.Columns.Add('AppLogoPath', [string])
+            [void]$table.Columns.Add('HeroImagePath', [string])
+            [void]$table.Columns.Add('Sound', [string])
+            [void]$table.Columns.Add('IsUrgent', [bool])
+
+            $row = $table.NewRow()
+            $row.MessageId = 99
+            $row.Title = 'Row title'
+            $row.Body = 'Row body'
+            $row.AppLogoPath = 'C:\Toast\row-logo.png'
+            $row.HeroImagePath = 'C:\Toast\row-hero.png'
+            $row.Sound = 'Mail'
+            $row.IsUrgent = $true
+            [void]$table.Rows.Add($row)
+
+            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            $result.Warnings.Count | Should -Be 0
+            $result.Parameters.Text | Should -Be @('Row title','Row body')
+            $result.Parameters.AppLogo | Should -Be 'C:\Toast\row-logo.png'
+            $result.Parameters.HeroImage | Should -Be 'C:\Toast\row-hero.png'
+            $result.Parameters.Sound | Should -Be 'Mail'
+            $result.Parameters.Urgent | Should -BeTrue
+        }
+
+        It 'treats DBNull toast metadata as missing values' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+            [void]$table.Columns.Add('Title', [string])
+            [void]$table.Columns.Add('Body', [string])
+            [void]$table.Columns.Add('AppLogoPath', [string])
+            [void]$table.Columns.Add('HeroImagePath', [string])
+            [void]$table.Columns.Add('Sound', [string])
+            [void]$table.Columns.Add('IsUrgent', [bool])
+
+            $row = $table.NewRow()
+            $row.MessageId = 100
+            $row.Title = 'DBNull title'
+            $row.Body = 'DBNull body'
+            $row['AppLogoPath'] = [DBNull]::Value
+            $row['HeroImagePath'] = [DBNull]::Value
+            $row['Sound'] = [DBNull]::Value
+            $row.IsUrgent = $false
+            [void]$table.Rows.Add($row)
+
+            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            @($result.Parameters.Keys) | Should -Be @('Text')
+            $result.Parameters.Text | Should -Be @('DBNull title','DBNull body')
+            $result.Warnings.Count | Should -Be 0
+        }
+
+        It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
+            InModuleScope ToastSql {
+                $global:ToastWarnings = @()
+                function Write-Warning {
+                    param([string]$Message)
+                    $global:ToastWarnings += $Message
+                }
+
+                function New-BurntToastNotification {
+                    param($Text,$AppLogo,$HeroImage,$Sound,[switch]$Urgent)
+                    $global:ToastInvocation = @{}
+                    foreach ($key in $PSBoundParameters.Keys) {
+                        $global:ToastInvocation[$key] = $PSBoundParameters[$key]
+                    }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 55
+                        Title = 'Helper title'
+                        Body = 'Helper body'
+                        AppLogoPath = 'C:\Toast\helper-logo.png'
+                        HeroImagePath = 'C:\Toast\helper-hero.png'
+                        Sound = 'Reminder'
+                        IsUrgent = $true
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo')
+
+                    $global:ToastWarnings.Count | Should -Be 3
+                    $global:ToastInvocation.Text | Should -Be @('Helper title','Helper body')
+                    $global:ToastInvocation.AppLogo | Should -Be 'C:\Toast\helper-logo.png'
+                    $global:ToastInvocation.ContainsKey('HeroImage') | Should -BeFalse
+                    $global:ToastInvocation.ContainsKey('Sound') | Should -BeFalse
+                    $global:ToastInvocation.ContainsKey('Urgent') | Should -BeFalse
+                } finally {
+                    Remove-Variable ToastWarnings -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Variable ToastInvocation -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Write-Warning -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'derives supported BurntToast parameter names from command discovery' {
+            InModuleScope ToastSql {
+                function Get-Command {
+                    param([string]$Name)
+                    if ($Name -ne 'New-BurntToastNotification') {
+                        throw "Unexpected command name: $Name"
+                    }
+
+                    return [pscustomobject]@{
+                        Parameters = [ordered]@{
+                            Text = $null
+                            AppLogo = $null
+                            HeroImage = $null
+                        }
+                    }
+                }
+
+                try {
+                    @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','AppLogo','HeroImage')
+                } finally {
+                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
     Context 'config loading' {
         BeforeAll {
             $requiredClientSettings = @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds')
