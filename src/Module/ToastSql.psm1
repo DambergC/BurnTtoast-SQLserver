@@ -7,7 +7,7 @@ $script:ToastSupportedImageContentTypes = @{
     'image/bmp' = '.bmp'
 }
 $script:ToastMaxImageBytes = 5MB
-$script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
+$script:ToastTemporaryFilePrefix = "BurnTtoast-SQLserver-$PID-"
 $script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
 $script:ToastSqlNullParameterDefinitions = @{
