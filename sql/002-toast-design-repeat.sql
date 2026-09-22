@@ -21,6 +21,21 @@ IF COL_LENGTH('dbo.ToastMessage', 'RepeatCount') IS NULL
 
 IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
     ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) WITH VALUES;
+ELSE
+BEGIN
+    DECLARE @NextShowUtcDefaultConstraintName sysname;
+    SELECT @NextShowUtcDefaultConstraintName = dc.name
+    FROM sys.default_constraints dc
+    INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+    WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
+      AND c.name = 'NextShowUtc';
+
+    IF @NextShowUtcDefaultConstraintName IS NOT NULL
+        EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
+
+    ALTER TABLE dbo.ToastDelivery
+        ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
+END;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL
     ALTER TABLE dbo.ToastDelivery ADD ShowCount int NOT NULL CONSTRAINT DF_ToastDelivery_ShowCount DEFAULT (0) WITH VALUES;

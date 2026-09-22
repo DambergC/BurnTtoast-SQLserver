@@ -124,6 +124,7 @@ Dismiss-knapp:
 ## Lokal tidsrapportering
 
 All intern lagring/schemaläggning använder serverns lokala tid (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och betyder inte längre att värdena är UTC.
 
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
@@ -132,6 +133,7 @@ All intern lagring/schemaläggning använder serverns lokala tid (`CreatedUtc`, 
 - `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)` (`@TimeZoneName` ignoreras för bakåtkompatibilitet)
 
 Objekten behåller samma namn men gör inte längre någon tidszonskonvertering; `*Local*`-kolumnerna returnerar samma lokala tid som lagras i tabellerna.
+För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
 
 Exempel på direktfråga:
 

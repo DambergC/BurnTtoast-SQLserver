@@ -18,6 +18,8 @@ RETURN
         m.Body,
         m.CreatedUtc,
         m.ExpiresUtc,
+        m.CreatedUtc AS CreatedServerLocalTime,
+        m.ExpiresUtc AS ExpiresServerLocalTime,
         m.CreatedUtc AS CreatedLocalTime,
         m.ExpiresUtc AS ExpiresLocalTime
     FROM dbo.ToastMessage m
@@ -41,6 +43,9 @@ RETURN
         d.LastAttemptUtc,
         d.DeliveredUtc,
         c.LastSeenUtc,
+        d.LastAttemptUtc AS LastAttemptServerLocalTime,
+        d.DeliveredUtc AS DeliveredServerLocalTime,
+        c.LastSeenUtc AS LastSeenServerLocalTime,
         d.LastAttemptUtc AS LastAttemptLocalTime,
         d.DeliveredUtc AS DeliveredLocalTime,
         c.LastSeenUtc AS LastSeenLocalTime
@@ -58,6 +63,8 @@ SELECT
     m.Body,
     m.CreatedUtc,
     m.ExpiresUtc,
+    m.CreatedUtc AS CreatedServerLocalTime,
+    m.ExpiresUtc AS ExpiresServerLocalTime,
     m.CreatedUtc AS CreatedLocalTime,
     m.ExpiresUtc AS ExpiresLocalTime
 FROM dbo.ToastMessage m;';
@@ -73,6 +80,9 @@ SELECT
     d.LastAttemptUtc,
     d.DeliveredUtc,
     c.LastSeenUtc,
+    d.LastAttemptUtc AS LastAttemptServerLocalTime,
+    d.DeliveredUtc AS DeliveredServerLocalTime,
+    c.LastSeenUtc AS LastSeenServerLocalTime,
     d.LastAttemptUtc AS LastAttemptLocalTime,
     d.DeliveredUtc AS DeliveredLocalTime,
     c.LastSeenUtc AS LastSeenLocalTime
