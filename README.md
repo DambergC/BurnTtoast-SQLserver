@@ -77,7 +77,7 @@ Ett meddelande är fortfarande engångsvisning per klient när repeat-parametrar
   -Body 'Teams-rummet öppnas nu.' `
   -RepeatIntervalMinutes 5 `
   -RepeatCount 3 `
-  -ExpiresUtc (Get-Date).ToUniversalTime().AddMinutes(20)
+  -ExpiresUtc (Get-Date).AddMinutes(20)
 ```
 
 Semantik för repeat:
@@ -121,9 +121,9 @@ Dismiss-knapp:
 - `ButtonText` krävs för att knappen ska skapas.
 - `ButtonArguments` måste vara en absolut URI när `ButtonActivationType` är `Protocol`.
 
-## Lokal tidsrapportering (lagring förblir UTC)
+## Lokal tidsrapportering
 
-All intern lagring/schemaläggning fortsätter använda UTC (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+All intern lagring/schemaläggning använder serverns lokala tid (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
 
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
@@ -131,12 +131,12 @@ All intern lagring/schemaläggning fortsätter använda UTC (`CreatedUtc`, `Expi
 - `dbo.ufn_ToastMessageLocal(@TimeZoneName)`
 - `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)`
 
-Standard-tidszon är `W. Europe Standard Time` (Sverige). Byt tidszon genom att ändra variabeln `@DefaultLocalTimeZone` högst upp i `sql/004-local-time-reporting.sql` och kör scriptet igen, eller använd funktionerna med egen parameter.
+Objekten behåller samma namn men gör inte längre någon tidszonskonvertering; `*Local*`-kolumnerna returnerar samma lokala tid som lagras i tabellerna.
 
 Exempel på direktfråga:
 
 ```sql
-SELECT CreatedUtc AT TIME ZONE 'UTC' AT TIME ZONE 'W. Europe Standard Time' AS CreatedLocalTime
+SELECT CreatedUtc AS CreatedLocalTime
 FROM dbo.ToastMessage;
 ```
 

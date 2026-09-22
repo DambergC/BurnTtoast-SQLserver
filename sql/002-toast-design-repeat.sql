@@ -20,7 +20,7 @@ IF COL_LENGTH('dbo.ToastMessage', 'RepeatCount') IS NULL
     ALTER TABLE dbo.ToastMessage ADD RepeatCount int NULL;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
-    ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSUTCDATETIME()) WITH VALUES;
+    ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) WITH VALUES;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL
     ALTER TABLE dbo.ToastDelivery ADD ShowCount int NOT NULL CONSTRAINT DF_ToastDelivery_ShowCount DEFAULT (0) WITH VALUES;
@@ -105,7 +105,7 @@ BEGIN
     DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName AND IsActive = 1);
     IF @ClientId IS NULL RETURN;
 
-    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @Now datetime2(0) = SYSDATETIME();
     DECLARE @LeaseSeconds int = 120;
 
     UPDATE dbo.ToastClient
@@ -166,7 +166,7 @@ BEGIN
     IF @LeaseId IS NULL THROW 50005, 'LeaseId is required when recording a toast delivery.', 1;
     IF @Status NOT IN ('Delivered','Failed','Cancelled') THROW 50007, 'Status must be Delivered, Failed, or Cancelled.', 1;
 
-    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @Now datetime2(0) = SYSDATETIME();
     DECLARE @RepeatIntervalSeconds int;
     DECLARE @RepeatCount int;
     DECLARE @ExpiresUtc datetime2(0);

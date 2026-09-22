@@ -131,7 +131,7 @@ BEGIN
     DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName AND IsActive = 1);
     IF @ClientId IS NULL RETURN;
 
-    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @Now datetime2(0) = SYSDATETIME();
     DECLARE @LeaseSeconds int = 120;
 
     UPDATE dbo.ToastClient
