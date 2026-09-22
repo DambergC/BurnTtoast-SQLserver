@@ -71,7 +71,11 @@ function Invoke-ToastDeliveryRecord {
 function Test-ToastDeliveryRetryableError {
     param([string]$ErrorMessage)
 
-    return $ErrorMessage -notlike '*lease was not found or is no longer active*'
+    return $ErrorMessage -like '*timeout*' -or
+        $ErrorMessage -like '*transport*' -or
+        $ErrorMessage -like '*connection*' -or
+        $ErrorMessage -like '*deadlock*' -or
+        $ErrorMessage -like '*temporar*'
 }
 function Invoke-Registration {
     $sql="IF NOT EXISTS(SELECT 1 FROM dbo.ToastClient WHERE ComputerName=@ComputerName) INSERT dbo.ToastClient(ComputerName) VALUES(@ComputerName); DECLARE @ClientId int=(SELECT ClientId FROM dbo.ToastClient WHERE ComputerName=@ComputerName); MERGE dbo.ToastGroup AS t USING (SELECT @GroupName GroupName) s ON t.GroupName=s.GroupName WHEN NOT MATCHED THEN INSERT(GroupName) VALUES(s.GroupName); INSERT dbo.ToastClientGroup(ClientId,GroupId) SELECT @ClientId,GroupId FROM dbo.ToastGroup g WHERE g.GroupName=@GroupName AND NOT EXISTS(SELECT 1 FROM dbo.ToastClientGroup x WHERE x.ClientId=@ClientId AND x.GroupId=g.GroupId);"
