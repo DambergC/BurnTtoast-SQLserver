@@ -82,6 +82,14 @@ function Import-ToastConfig {
         }
     }
 
+    foreach ($positiveIntegerSetting in @('ConnectTimeoutSeconds','CommandTimeoutSeconds')) {
+        if ($config.ContainsKey($positiveIntegerSetting)) {
+            if ($config[$positiveIntegerSetting] -isnot [int] -or $config[$positiveIntegerSetting] -le 0) {
+                throw "Config file '$Path' setting $positiveIntegerSetting must be a positive integer."
+            }
+        }
+    }
+
     if ($config.ContainsKey('UseIntegratedSecurity') -and -not $config['UseIntegratedSecurity']) {
         if (-not $config.ContainsKey('SqlCredential') -or $null -eq $config['SqlCredential']) {
             throw "Config file '$Path' sets UseIntegratedSecurity = `$false, so SqlCredential must be provided as a PSCredential or as a static hashtable with UserName and Password."
@@ -135,8 +143,8 @@ function Get-ToastConnectionString {
 
     $connectTimeoutSeconds = 15
     if ($Config.ContainsKey('ConnectTimeoutSeconds')) {
-        if ($Config['ConnectTimeoutSeconds'] -isnot [int]) {
-            throw "Config setting ConnectTimeoutSeconds must be an integer."
+        if ($Config['ConnectTimeoutSeconds'] -isnot [int] -or $Config['ConnectTimeoutSeconds'] -le 0) {
+            throw "Config setting ConnectTimeoutSeconds must be a positive integer."
         }
 
         $connectTimeoutSeconds = $Config['ConnectTimeoutSeconds']
@@ -165,7 +173,7 @@ function Get-ToastConnectionString {
 }
 
 function Invoke-ToastSql {
-    param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
+    param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
     $command = $null
     $reader = $null

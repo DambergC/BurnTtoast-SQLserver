@@ -293,5 +293,47 @@ Describe 'ToastSql module' {
 
             { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*Encrypt must be `$true or `$false*"
         }
+
+        It 'rejects a non-positive ConnectTimeoutSeconds value' {
+            $configPath = Join-Path $TestDrive 'invalid-connect-timeout.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$true
+    ClientName = `$null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 0
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ConnectTimeoutSeconds must be a positive integer*"
+        }
+
+        It 'rejects a non-positive CommandTimeoutSeconds value' {
+            $configPath = Join-Path $TestDrive 'invalid-command-timeout.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$true
+    ClientName = `$null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
+    CommandTimeoutSeconds = 0
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*CommandTimeoutSeconds must be a positive integer*"
+        }
     }
 }
