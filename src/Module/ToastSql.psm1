@@ -314,15 +314,25 @@ function Get-ToastNotificationParameters {
         $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
         $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
         if ($supportedParameterLookup.ContainsKey('Button') -and $hasButtonCommand) {
+            $resolvedButtonActivationType = if ([string]::IsNullOrWhiteSpace([string]$buttonActivationType)) { 'Protocol' } else { [string]$buttonActivationType }
             $newButtonParameters = @{
                 Content = [string]$buttonText
-                ActivationType = if ([string]::IsNullOrWhiteSpace([string]$buttonActivationType)) { 'Protocol' } else { [string]$buttonActivationType }
             }
-            if (-not [string]::IsNullOrWhiteSpace([string]$buttonArguments)) {
-                $newButtonParameters['Arguments'] = [string]$buttonArguments
-            }
+            if ($resolvedButtonActivationType -eq 'Dismiss') {
+                if ($buttonCommand.Parameters.Keys -contains 'Dismiss') {
+                    $newButtonParameters['Dismiss'] = $true
+                    $parameters['Button'] = New-BTButton @newButtonParameters
+                } else {
+                    $warnings.Add("Installed BurntToast version does not support dismiss action buttons. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without a button.")
+                }
+            } else {
+                $newButtonParameters['ActivationType'] = $resolvedButtonActivationType
+                if (-not [string]::IsNullOrWhiteSpace([string]$buttonArguments)) {
+                    $newButtonParameters['Arguments'] = [string]$buttonArguments
+                }
 
-            $parameters['Button'] = New-BTButton @newButtonParameters
+                $parameters['Button'] = New-BTButton @newButtonParameters
+            }
         } else {
             $warnings.Add("Installed BurntToast does not support button actions. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without a button.")
         }

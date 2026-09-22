@@ -104,7 +104,7 @@ Describe 'ToastSql module' {
 
     Context 'button settings' {
         It 'returns nulls when no button data is supplied' {
-            $result = Resolve-ToastButtonSettings -ButtonText $null -ButtonArguments $null -ButtonActivationType $null
+            $result = Resolve-ToastButtonSettings -ButtonText $null -ButtonArguments $null
 
             $result.ButtonText | Should -Be $null
             $result.ButtonArguments | Should -Be $null
@@ -168,18 +168,168 @@ Describe 'ToastSql module' {
         }
 
         It 'adds a button when supported and available' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                ButtonText = 'Open'
-                ButtonArguments = 'https://example.com'
-                ButtonActivationType = 'Protocol'
+            InModuleScope ToastSql {
+                function New-BTButton {
+                    param(
+                        [string]$Content,
+                        [string]$ActivationType,
+                        [string]$Arguments
+                    )
+                }
+
+                Mock New-BTButton {
+                    param(
+                        $Content,
+                        $ActivationType,
+                        $Arguments,
+                        [switch]$Dismiss
+                    )
+
+                    [pscustomobject]@{
+                        BoundParameters = @{} + $PSBoundParameters
+                    }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.ContainsKey('Button') | Should -Be $true
+                } finally {
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
             }
+        }
 
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+        It 'passes Protocol activation to New-BTButton' {
+            InModuleScope ToastSql {
+                function New-BTButton {
+                    param(
+                        [string]$Content,
+                        [string]$ActivationType,
+                        [string]$Arguments
+                    )
+                }
 
-            $result.Parameters.ContainsKey('Button') | Should -Be $true
+                Mock New-BTButton {
+                    param(
+                        $Content,
+                        $ActivationType,
+                        $Arguments,
+                        [switch]$Dismiss
+                    )
+
+                    [pscustomobject]@{
+                        BoundParameters = @{} + $PSBoundParameters
+                    }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.Button.BoundParameters['Content'] | Should -Be 'Open'
+                    $result.Parameters.Button.BoundParameters['ActivationType'] | Should -Be 'Protocol'
+                    $result.Parameters.Button.BoundParameters['Arguments'] | Should -Be 'https://example.com'
+                    $result.Parameters.Button.BoundParameters.ContainsKey('Dismiss') | Should -Be $false
+                } finally {
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'uses the dismiss switch instead of ActivationType for dismiss buttons' {
+            InModuleScope ToastSql {
+                function New-BTButton {
+                    param(
+                        [string]$Content,
+                        [switch]$Dismiss
+                    )
+                }
+
+                Mock New-BTButton {
+                    param(
+                        $Content,
+                        $ActivationType,
+                        $Arguments,
+                        [switch]$Dismiss
+                    )
+
+                    [pscustomobject]@{
+                        BoundParameters = @{} + $PSBoundParameters
+                    }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        ButtonText = 'Dismiss'
+                        ButtonArguments = $null
+                        ButtonActivationType = 'Dismiss'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.Button.BoundParameters['Content'] | Should -Be 'Dismiss'
+                    $result.Parameters.Button.BoundParameters['Dismiss'] | Should -Be $true
+                    $result.Parameters.Button.BoundParameters.ContainsKey('ActivationType') | Should -Be $false
+                    $result.Parameters.Button.BoundParameters.ContainsKey('Arguments') | Should -Be $false
+                } finally {
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns and omits dismiss buttons when BurntToast lacks dismiss support' {
+            InModuleScope ToastSql {
+                function New-BTButton {
+                    param(
+                        [string]$Content,
+                        [string]$ActivationType,
+                        [string]$Arguments
+                    )
+                }
+
+                Mock New-BTButton {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        ButtonText = 'Dismiss'
+                        ButtonArguments = $null
+                        ButtonActivationType = 'Dismiss'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.ContainsKey('Button') | Should -Be $false
+                    $result.Warnings.Count | Should -Be 1
+                    $result.Warnings[0] | Should -Match 'does not support dismiss action buttons'
+                    Should -Invoke New-BTButton -Times 0
+                } finally {
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
         }
     }
 
