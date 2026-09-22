@@ -84,6 +84,51 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'button settings' {
+        It 'keeps button fields null when button settings are omitted' {
+            $result = Resolve-ToastButtonSettings
+
+            $result.ButtonText | Should -Be $null
+            $result.ButtonArguments | Should -Be $null
+            $result.ButtonActivationType | Should -Be $null
+        }
+
+        It 'defaults button activation type to Protocol when text is supplied' {
+            $result = Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments 'https://example.test/path'
+
+            $result.ButtonText | Should -Be 'Open'
+            $result.ButtonArguments | Should -Be 'https://example.test/path'
+            $result.ButtonActivationType | Should -Be 'Protocol'
+        }
+
+        It 'accepts non-http absolute protocol URIs' {
+            $result = Resolve-ToastButtonSettings -ButtonText 'Mail' -ButtonArguments 'mailto:ops@example.test' -ButtonActivationType 'Protocol'
+
+            $result.ButtonArguments | Should -Be 'mailto:ops@example.test'
+            $result.ButtonActivationType | Should -Be 'Protocol'
+        }
+
+        It 'allows dismiss buttons without arguments' {
+            $result = Resolve-ToastButtonSettings -ButtonText 'Dismiss' -ButtonActivationType 'Dismiss'
+
+            $result.ButtonText | Should -Be 'Dismiss'
+            $result.ButtonArguments | Should -Be $null
+            $result.ButtonActivationType | Should -Be 'Dismiss'
+        }
+
+        It 'rejects button arguments when button text is missing' {
+            { Resolve-ToastButtonSettings -ButtonArguments 'https://example.test/path' } | Should -Throw '*ButtonText must be specified*'
+        }
+
+        It 'rejects protocol buttons without button arguments' {
+            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonActivationType 'Protocol' } | Should -Throw '*ButtonArguments is required*'
+        }
+
+        It 'rejects protocol buttons with non-absolute URIs' {
+            { Resolve-ToastButtonSettings -ButtonText 'Open' -ButtonArguments '/relative/path' -ButtonActivationType 'Protocol' } | Should -Throw '*valid absolute URI*'
+        }
+    }
+
     Context 'toast notification parameter building' {
         It 'builds BurntToast parameters from optional toast metadata' {
             $row = [pscustomobject]@{
@@ -182,6 +227,176 @@ Describe 'ToastSql module' {
             $result.Warnings.Count | Should -Be 0
         }
 
+        It 'builds a button only when button data and support are present' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocations = @()
+                function New-BTButton {
+                    param([string]$Content,[string]$Arguments,[string]$ActivationType)
+                    $global:ButtonInvocations += @{
+                        Content = $Content
+                        Arguments = $Arguments
+                        ActivationType = $ActivationType
+                    }
+
+                    return [pscustomobject]@{ Kind = 'Button'; Content = $Content }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 314
+                        Title = 'Button title'
+                        Body = 'Button body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.test'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $global:ButtonInvocations.Count | Should -Be 1
+                    $global:ButtonInvocations[0].Content | Should -Be 'Open'
+                    $global:ButtonInvocations[0].Arguments | Should -Be 'https://example.test'
+                    $global:ButtonInvocations[0].ActivationType | Should -Be 'Protocol'
+                    @($result.Parameters.Button).Count | Should -Be 1
+                    $result.Parameters.Button.Content | Should -Be 'Open'
+                    $result.Warnings.Count | Should -Be 0
+                } finally {
+                    Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'does not build a button when button text is absent' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocationCount = 0
+                function New-BTButton {
+                    $global:ButtonInvocationCount++
+                    return [pscustomobject]@{ Kind = 'Button' }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 271
+                        Title = 'No button title'
+                        Body = 'No button body'
+                        ButtonText = $null
+                        ButtonArguments = $null
+                        ButtonActivationType = $null
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $global:ButtonInvocationCount | Should -Be 0
+                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
+                } finally {
+                    Remove-Variable ButtonInvocationCount -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns and skips button creation when Button is unsupported' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocationCount = 0
+                function New-BTButton {
+                    $global:ButtonInvocationCount++
+                    return [pscustomobject]@{ Kind = 'Button' }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 272
+                        Title = 'Unsupported button title'
+                        Body = 'Unsupported button body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.test/unsupported'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text')
+
+                    $global:ButtonInvocationCount | Should -Be 0
+                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
+                    $result.Warnings.Count | Should -Be 1
+                    $result.Warnings[0] | Should -Match 'without a button'
+                } finally {
+                    Remove-Variable ButtonInvocationCount -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns and skips button creation when New-BTButton is unavailable' {
+            InModuleScope ToastSql {
+                function Get-Command {
+                    param([string]$Name)
+                    if ($Name -eq 'New-BTButton') {
+                        return $null
+                    }
+
+                    return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 273
+                        Title = 'Missing command title'
+                        Body = 'Missing command body'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.test/missing-command'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $result.Parameters.ContainsKey('Button') | Should -BeFalse
+                    $result.Warnings.Count | Should -Be 1
+                    $result.Warnings[0] | Should -Match 'without a button'
+                } finally {
+                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'creates dismiss buttons without arguments' {
+            InModuleScope ToastSql {
+                $global:ButtonInvocations = @()
+                function New-BTButton {
+                    param([string]$Content,[string]$Arguments,[string]$ActivationType)
+                    $global:ButtonInvocations += @{
+                        Content = $Content
+                        Arguments = $Arguments
+                        ActivationType = $ActivationType
+                    }
+
+                    return [pscustomobject]@{ Kind = 'Button'; Content = $Content }
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 274
+                        Title = 'Dismiss title'
+                        Body = 'Dismiss body'
+                        ButtonText = 'Dismiss'
+                        ButtonArguments = $null
+                        ButtonActivationType = 'Dismiss'
+                    }
+
+                    $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','Button')
+
+                    $global:ButtonInvocations.Count | Should -Be 1
+                    $global:ButtonInvocations[0].Content | Should -Be 'Dismiss'
+                    $global:ButtonInvocations[0].Arguments | Should -BeNullOrEmpty
+                    $global:ButtonInvocations[0].ActivationType | Should -Be 'Dismiss'
+                    $result.Warnings.Count | Should -Be 0
+                } finally {
+                    Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'emits warnings and splats only supported BurntToast parameters when invoking the client helper' {
             InModuleScope ToastSql {
                 $global:ToastWarnings = @()
@@ -231,6 +446,10 @@ Describe 'ToastSql module' {
                 function Get-Command {
                     param([string]$Name)
                     if ($Name -ne 'New-BurntToastNotification') {
+                        if ($Name -eq 'New-BTButton') {
+                            return $null
+                        }
+
                         throw "Unexpected command name: $Name"
                     }
 
@@ -245,6 +464,34 @@ Describe 'ToastSql module' {
 
                 try {
                     @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','AppLogo','HeroImage')
+                } finally {
+                    Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'includes Button support only when New-BTButton is available' {
+            InModuleScope ToastSql {
+                function Get-Command {
+                    param([string]$Name)
+                    if ($Name -eq 'New-BurntToastNotification') {
+                        return [pscustomobject]@{
+                            Parameters = [ordered]@{
+                                Text = $null
+                                Button = $null
+                            }
+                        }
+                    }
+
+                    if ($Name -eq 'New-BTButton') {
+                        return [pscustomobject]@{ Parameters = [ordered]@{ Content = $null } }
+                    }
+
+                    throw "Unexpected command name: $Name"
+                }
+
+                try {
+                    @(Get-ToastNotificationSupportedParameters) | Should -Be @('Text','Button')
                 } finally {
                     Remove-Item Function:\Get-Command -ErrorAction SilentlyContinue
                 }

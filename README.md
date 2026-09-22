@@ -22,7 +22,7 @@ Toasten skickas alltså inte via SQL eller WinRM. SQL används som kö och statu
 
 ## Installation
 
-1. Kör `sql/001-schema.sql` och därefter `sql/002-toast-design-repeat.sql` i den databas som ska användas.
+1. Kör `sql/001-schema.sql`, `sql/002-toast-design-repeat.sql`, `sql/003-toast-button.sql` och `sql/004-local-time-reporting.sql` i den databas som ska användas.
 2. Ge ett SQL-login eller Windows-grupp minsta nödvändiga rättigheter enligt kommentarerna i SQL-filen.
 3. Kopiera `config/config.example.psd1` till `config/config.psd1` och fyll i server/databas.
    PSD1-filen måste innehålla statiska värden som stöds av `Import-PowerShellDataFile`; lämna `ClientName = $null` om klienten ska använda det lokala datornamnet automatiskt.
@@ -87,6 +87,58 @@ Semantik för repeat:
 - Om nästa planerade visning skulle inträffa på eller efter `ExpiresUtc` stoppas återstående upprepningar för den klienten.
 - Om en klient misslyckas med att visa en repeat-toast sparas felmeddelandet och klienten försöker igen vid nästa repeat-intervall så länge det finns återstående visningar och meddelandet inte har gått ut.
 - Klienten leasar varje toast-occurrence innan den visas så att samtidiga poll-cykler inte visar samma occurrence mer än en gång. Om klienten kraschar efter visning men före kvittens kan samma occurrence visas igen när leasingen löper ut.
+
+## Toast-knapp (valfri)
+
+Server-scriptet stöder en valfri knapp per meddelande. Om knappdata utelämnas visas toasten precis som tidigare.
+
+Öppna URL/protokoll:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Läs driftinfo' `
+  -Body 'Klicka för detaljer i ärendesystemet.' `
+  -ButtonText 'Öppna' `
+  -ButtonArguments 'https://status.example.se/ticket/12345' `
+  -ButtonActivationType Protocol
+```
+
+Dismiss-knapp:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Påminnelse' `
+  -Body 'Bekräfta att du sett meddelandet.' `
+  -ButtonText 'Stäng' `
+  -ButtonActivationType Dismiss
+```
+
+- `ButtonActivationType` tillåter bara `Protocol` eller `Dismiss`.
+- `ButtonText` krävs för att knappen ska skapas.
+- `ButtonArguments` måste vara en absolut URI när `ButtonActivationType` är `Protocol`.
+
+## Lokal tidsrapportering (lagring förblir UTC)
+
+All intern lagring/schemaläggning fortsätter använda UTC (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+
+`sql/004-local-time-reporting.sql` skapar:
+- `dbo.vw_ToastMessageLocal`
+- `dbo.vw_ToastDeliveryLocal`
+- `dbo.ufn_ToastMessageLocal(@TimeZoneName)`
+- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)`
+
+Standard-tidszon är `W. Europe Standard Time` (Sverige). Byt tidszon genom att ändra variabeln `@DefaultLocalTimeZone` högst upp i `sql/004-local-time-reporting.sql` och kör scriptet igen, eller använd funktionerna med egen parameter.
+
+Exempel på direktfråga:
+
+```sql
+SELECT CreatedUtc AT TIME ZONE 'UTC' AT TIME ZONE 'W. Europe Standard Time' AS CreatedLocalTime
+FROM dbo.ToastMessage;
+```
 
 ## Säkerhet
 
