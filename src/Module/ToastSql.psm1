@@ -297,7 +297,9 @@ function Get-ToastNotificationSupportedParameters {
 
     $command = Get-Command $CommandName -ErrorAction Stop
     $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
-    if (($command.Parameters.Keys -contains 'Button') -and (Get-Command 'New-BTButton' -ErrorAction SilentlyContinue)) {
+    $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
+    $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
+    if (($command.Parameters.Keys -contains 'Button') -and $hasButtonCommand) {
         $supportedParameters += 'Button'
     }
 

@@ -344,6 +344,10 @@ Describe 'ToastSql module' {
                 function Get-Command {
                     param([string]$Name)
                     if ($Name -ne 'New-BurntToastNotification') {
+                        if ($Name -eq 'New-BTButton') {
+                            return $null
+                        }
+
                         throw "Unexpected command name: $Name"
                     }
 
