@@ -156,7 +156,7 @@ function Resolve-ToastButtonSettings {
         if (
             -not [System.Uri]::TryCreate($normalizedButtonArguments, [System.UriKind]::Absolute, [ref]$buttonUri) -or
             [string]::IsNullOrWhiteSpace($buttonUri.Scheme) -or
-            ($normalizedButtonArguments -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*://')
+            ($normalizedButtonArguments -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*:')
         ) {
             throw 'ButtonArguments must be a valid absolute URI when ButtonActivationType is Protocol.'
         }

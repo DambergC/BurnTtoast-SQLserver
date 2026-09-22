@@ -101,6 +101,13 @@ Describe 'ToastSql module' {
             $result.ButtonActivationType | Should -Be 'Protocol'
         }
 
+        It 'accepts non-http absolute protocol URIs' {
+            $result = Resolve-ToastButtonSettings -ButtonText 'Mail' -ButtonArguments 'mailto:ops@example.test' -ButtonActivationType 'Protocol'
+
+            $result.ButtonArguments | Should -Be 'mailto:ops@example.test'
+            $result.ButtonActivationType | Should -Be 'Protocol'
+        }
+
         It 'allows dismiss buttons without arguments' {
             $result = Resolve-ToastButtonSettings -ButtonText 'Dismiss' -ButtonActivationType 'Dismiss'
 
