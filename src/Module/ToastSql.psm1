@@ -8,6 +8,7 @@ $script:ToastSupportedImageContentTypes = @{
 }
 $script:ToastMaxImageBytes = 5MB
 $script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
+$script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
 $script:ToastSqlNullParameterDefinitions = @{
     AppLogoBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
@@ -143,7 +144,11 @@ function Test-ToastImageSize {
 }
 
 function Clear-StaleToastTemporaryFiles {
-    $temporaryDirectory = [System.IO.Path]::GetTempPath()
+    $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) $script:ToastTemporaryDirectoryName
+    if (-not (Test-Path -LiteralPath $temporaryDirectory)) {
+        return
+    }
+
     $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$script:ToastTemporaryFileRetentionMinutes)
     $supportedExtensions = @($script:ToastSupportedImageContentTypes.Values)
 
@@ -157,6 +162,15 @@ function Clear-StaleToastTemporaryFiles {
             continue
         }
     }
+}
+
+function Get-ToastTemporaryImageDirectory {
+    $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) $script:ToastTemporaryDirectoryName
+    if (-not (Test-Path -LiteralPath $temporaryDirectory)) {
+        [void][System.IO.Directory]::CreateDirectory($temporaryDirectory)
+    }
+
+    return $temporaryDirectory
 }
 
 function Remove-ToastTemporaryFiles {
@@ -542,7 +556,7 @@ function Get-ToastNotificationParameters {
                         }
 
                         Test-ToastImageSize -ImageBytes $imageBytes -ParameterName $mapping.ParameterName
-                        $temporaryImagePath = Join-Path ([System.IO.Path]::GetTempPath()) "$($script:ToastTemporaryFilePrefix)$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
+                        $temporaryImagePath = Join-Path (Get-ToastTemporaryImageDirectory) "$($script:ToastTemporaryFilePrefix)$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
                         [System.IO.File]::WriteAllBytes($temporaryImagePath, $imageBytes)
                         $temporaryFiles.Add($temporaryImagePath)
                         $value = $temporaryImagePath
