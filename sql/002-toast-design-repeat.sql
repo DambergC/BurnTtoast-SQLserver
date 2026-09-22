@@ -1,6 +1,16 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
-DECLARE @ServerLocalTimeZone sysname = N'W. Europe Standard Time';
+DECLARE @ServerLocalTimeZone sysname = NULL;
+IF @ServerLocalTimeZone IS NULL
+BEGIN
+    SELECT TOP (1) @ServerLocalTimeZone = name
+    FROM sys.time_zone_info
+    WHERE current_utc_offset = DATENAME(TZOFFSET, SYSDATETIMEOFFSET())
+    ORDER BY name;
+END;
+
+IF @ServerLocalTimeZone IS NULL
+    THROW 50013, 'Unable to determine a local server time zone for UTC-to-local migration.', 1;
 
 IF COL_LENGTH('dbo.ToastMessage', 'AppLogoPath') IS NULL
     ALTER TABLE dbo.ToastMessage ADD AppLogoPath nvarchar(1024) NULL;
