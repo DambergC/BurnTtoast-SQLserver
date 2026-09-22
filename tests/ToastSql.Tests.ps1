@@ -369,4 +369,38 @@ Describe 'ToastSql module' {
             $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
         }
     }
+
+    Context 'local-time reporting SQL compatibility' {
+        It 'keeps @TimeZoneName and avoids UTC-to-local conversion assumptions' {
+            $scriptPath = Join-Path $PSScriptRoot '..\sql\004-local-time-reporting.sql'
+            $scriptText = Get-Content -Path $scriptPath -Raw
+
+            $scriptText | Should -Match "DECLARE @DefaultLocalTimeZone sysname = NULL;"
+            $scriptText | Should -Match "CURRENT_TIMEZONE\(\)"
+            $scriptText | Should -Match "FROM sys\.time_zone_info"
+            $scriptText | Should -Match "ufn_ToastMessageLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
+            $scriptText | Should -Match "ufn_ToastDeliveryLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
+            $scriptText | Should -Match "\(m\.CreatedUtc AT TIME ZONE @ServerTimeZoneName\) AT TIME ZONE @TimeZoneName"
+            $scriptText | Should -Match "\(d\.LastAttemptUtc AT TIME ZONE @ServerTimeZoneName\) AT TIME ZONE @TimeZoneName"
+            $scriptText | Should -Match "m\.CreatedUtc AT TIME ZONE N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''' AS CreatedLocalTime"
+            $scriptText | Should -Match "d\.LastAttemptUtc AT TIME ZONE N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''' AS LastAttemptLocalTime"
+            $scriptText | Should -Match "m\.CreatedUtc AS CreatedServerLocalTime"
+            $scriptText | Should -Match "d\.LastAttemptUtc AS LastAttemptServerLocalTime"
+            $scriptText | Should -Not -Match "AT TIME ZONE ''UTC''"
+        }
+    }
+
+    Context 'legacy UTC migration SQL coverage' {
+        It 'converts legacy UTC timestamp columns when upgrading existing installations' {
+            $scriptPath = Join-Path $PSScriptRoot '..\sql\002-toast-design-repeat.sql'
+            $scriptText = Get-Content -Path $scriptPath -Raw
+
+            $scriptText | Should -Match "CURRENT_TIMEZONE\(\)"
+            $scriptText | Should -Match "FROM sys\.time_zone_info"
+            $scriptText | Should -Match "UPDATE dbo\.ToastMessage"
+            $scriptText | Should -Match "UPDATE dbo\.ToastDelivery"
+            $scriptText | Should -Match "UPDATE dbo\.ToastClient"
+            $scriptText | Should -Match "AT TIME ZONE 'UTC'\) AT TIME ZONE @ServerLocalTimeZone"
+        }
+    }
 }

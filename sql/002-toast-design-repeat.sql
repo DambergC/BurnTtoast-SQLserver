@@ -1,5 +1,23 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+DECLARE @ServerLocalTimeZone sysname = NULL;
+BEGIN TRY
+    EXEC sp_executesql
+        N'SELECT @ResolvedTimeZone = CONVERT(sysname, CURRENT_TIMEZONE())',
+        N'@ResolvedTimeZone sysname OUTPUT',
+        @ResolvedTimeZone = @ServerLocalTimeZone OUTPUT;
+END TRY
+BEGIN CATCH
+    SET @ServerLocalTimeZone = NULL;
+END CATCH;
+
+IF @ServerLocalTimeZone IS NULL
+BEGIN
+    SELECT TOP (1) @ServerLocalTimeZone = name
+    FROM sys.time_zone_info
+    WHERE current_utc_offset = DATENAME(TZOFFSET, SYSDATETIMEOFFSET())
+    ORDER BY name;
+END;
 
 IF COL_LENGTH('dbo.ToastMessage', 'AppLogoPath') IS NULL
     ALTER TABLE dbo.ToastMessage ADD AppLogoPath nvarchar(1024) NULL;
@@ -20,7 +38,82 @@ IF COL_LENGTH('dbo.ToastMessage', 'RepeatCount') IS NULL
     ALTER TABLE dbo.ToastMessage ADD RepeatCount int NULL;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'NextShowUtc') IS NULL
-    ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSUTCDATETIME()) WITH VALUES;
+    ALTER TABLE dbo.ToastDelivery ADD NextShowUtc datetime2(0) NOT NULL CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) WITH VALUES;
+ELSE
+BEGIN
+    BEGIN TRY
+        BEGIN TRAN;
+
+        DECLARE @NextShowUtcDefaultConstraintName sysname;
+        DECLARE @NextShowUtcDefaultDefinition nvarchar(max);
+        SELECT @NextShowUtcDefaultConstraintName = dc.name
+             , @NextShowUtcDefaultDefinition = dc.definition
+        FROM sys.default_constraints dc
+        INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+        WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
+          AND c.name = 'NextShowUtc';
+
+        IF @NextShowUtcDefaultDefinition LIKE '%SYSUTCDATETIME%'
+        BEGIN
+            IF @ServerLocalTimeZone IS NULL
+                THROW 50013, 'Unable to resolve SQL Server local Windows time zone name for UTC-to-local timestamp migration.', 1;
+
+            UPDATE dbo.ToastDelivery
+            SET NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+                LeaseExpiresUtc = CASE
+                    WHEN LeaseExpiresUtc IS NULL THEN NULL
+                    ELSE CAST(((LeaseExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE NextShowUtc IS NOT NULL
+               OR LeaseExpiresUtc IS NOT NULL;
+
+            UPDATE dbo.ToastDelivery
+            SET LastAttemptUtc = CASE
+                    WHEN LastAttemptUtc IS NULL THEN NULL
+                    ELSE CAST(((LastAttemptUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END,
+                DeliveredUtc = CASE
+                    WHEN DeliveredUtc IS NULL THEN NULL
+                    ELSE CAST(((DeliveredUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE LastAttemptUtc IS NOT NULL
+               OR DeliveredUtc IS NOT NULL;
+
+            UPDATE dbo.ToastClient
+            SET LastSeenUtc = CAST(((LastSeenUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+            WHERE LastSeenUtc IS NOT NULL;
+
+            UPDATE dbo.ToastMessage
+            SET CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+                ExpiresUtc = CASE
+                    WHEN ExpiresUtc IS NULL THEN NULL
+                    ELSE CAST(((ExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+                END
+            WHERE CreatedUtc IS NOT NULL
+               OR ExpiresUtc IS NOT NULL;
+        END;
+
+        IF @NextShowUtcDefaultConstraintName IS NOT NULL
+            EXEC (N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT ' + QUOTENAME(@NextShowUtcDefaultConstraintName) + N';');
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.default_constraints dc
+            INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+            WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
+              AND c.name = 'NextShowUtc'
+        )
+            ALTER TABLE dbo.ToastDelivery
+                ADD CONSTRAINT DF_ToastDelivery_NextShowUtc DEFAULT (SYSDATETIME()) FOR NextShowUtc;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK;
+        THROW;
+    END CATCH
+END;
 
 IF COL_LENGTH('dbo.ToastDelivery', 'ShowCount') IS NULL
     ALTER TABLE dbo.ToastDelivery ADD ShowCount int NOT NULL CONSTRAINT DF_ToastDelivery_ShowCount DEFAULT (0) WITH VALUES;
@@ -105,7 +198,7 @@ BEGIN
     DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName AND IsActive = 1);
     IF @ClientId IS NULL RETURN;
 
-    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @Now datetime2(0) = SYSDATETIME();
     DECLARE @LeaseSeconds int = 120;
 
     UPDATE dbo.ToastClient
@@ -166,7 +259,7 @@ BEGIN
     IF @LeaseId IS NULL THROW 50005, 'LeaseId is required when recording a toast delivery.', 1;
     IF @Status NOT IN ('Delivered','Failed','Cancelled') THROW 50007, 'Status must be Delivered, Failed, or Cancelled.', 1;
 
-    DECLARE @Now datetime2(0) = SYSUTCDATETIME();
+    DECLARE @Now datetime2(0) = SYSDATETIME();
     DECLARE @RepeatIntervalSeconds int;
     DECLARE @RepeatCount int;
     DECLARE @ExpiresUtc datetime2(0);

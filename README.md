@@ -77,7 +77,7 @@ Ett meddelande är fortfarande engångsvisning per klient när repeat-parametrar
   -Body 'Teams-rummet öppnas nu.' `
   -RepeatIntervalMinutes 5 `
   -RepeatCount 3 `
-  -ExpiresUtc (Get-Date).ToUniversalTime().AddMinutes(20)
+  -ExpiresUtc (Get-Date).AddMinutes(20)
 ```
 
 Semantik för repeat:
@@ -121,23 +121,27 @@ Dismiss-knapp:
 - `ButtonText` krävs för att knappen ska skapas.
 - `ButtonArguments` måste vara en absolut URI när `ButtonActivationType` är `Protocol`.
 
-## Lokal tidsrapportering (lagring förblir UTC)
+## Lokal tidsrapportering
 
-All intern lagring/schemaläggning fortsätter använda UTC (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+Ny schemaläggning och procedurernas lease-/leveransstatus använder serverns lokala tid (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och betyder inte längre att nya värden alltid är UTC.
 
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
 - `dbo.vw_ToastDeliveryLocal`
-- `dbo.ufn_ToastMessageLocal(@TimeZoneName)`
-- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)`
+- `dbo.ufn_ToastMessageLocal(@TimeZoneName, @ServerTimeZoneName)` (`@TimeZoneName` styr visningszon, `@ServerTimeZoneName` anger vilken zon de lagrade lokala tiderna tillhör)
+- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName, @ServerTimeZoneName)` (`@TimeZoneName` styr visningszon, `@ServerTimeZoneName` anger vilken zon de lagrade lokala tiderna tillhör)
 
-Standard-tidszon är `W. Europe Standard Time` (Sverige). Byt tidszon genom att ändra variabeln `@DefaultLocalTimeZone` högst upp i `sql/004-local-time-reporting.sql` och kör scriptet igen, eller använd funktionerna med egen parameter.
+Objekten behåller samma namn och konverterar inte längre från UTC till lokal tid; `*LocalTime`-kolumnerna presenterar lokalt lagrade tidsvärden som `datetimeoffset`.
+För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
+`sql/002-toast-design-repeat.sql` flyttar även befintliga UTC-rader i `CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc` och `LastSeenUtc` till serverns lokala tid vid uppgradering.
+`sql/002-toast-design-repeat.sql` och `sql/004-local-time-reporting.sql` försöker läsa SQL Servers lokala Windows-tidszon automatiskt (`CURRENT_TIMEZONE()`, med fallback till `sys.time_zone_info` via aktuell UTC-offset).
 
 Exempel på direktfråga:
 
 ```sql
-SELECT CreatedUtc AT TIME ZONE 'UTC' AT TIME ZONE 'W. Europe Standard Time' AS CreatedLocalTime
-FROM dbo.ToastMessage;
+SELECT MessageId, CreatedLocalTime
+FROM dbo.vw_ToastMessageLocal;
 ```
 
 ## Säkerhet
