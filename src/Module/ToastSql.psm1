@@ -5,6 +5,7 @@ function Import-ToastConfig {
     param(
         [Parameter(Mandatory)][string]$Path,
         [string[]]$RequiredProperties = @(),
+        [string[]]$NullableProperties = @(),
         [switch]$ResolveClientName
     )
 
@@ -17,6 +18,18 @@ function Import-ToastConfig {
     $missing = @($RequiredProperties | Where-Object { -not $config.ContainsKey($_) })
     if ($missing.Count -gt 0) {
         throw "Config file '$Path' is missing required setting(s): $($missing -join ', '). Copy config/config.example.psd1 and define each setting explicitly."
+    }
+
+    $emptyRequired = @(
+        $RequiredProperties |
+            Where-Object { $_ -notin $NullableProperties } |
+            Where-Object {
+                $value = $config[$_]
+                $null -eq $value -or ($value -is [string] -and [string]::IsNullOrWhiteSpace($value))
+            }
+    )
+    if ($emptyRequired.Count -gt 0) {
+        throw "Config file '$Path' has empty required setting(s): $($emptyRequired -join ', '). Set each required value explicitly or copy it from config/config.example.psd1."
     }
 
     if ($ResolveClientName) {
