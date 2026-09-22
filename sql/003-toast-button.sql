@@ -59,10 +59,12 @@ BEGIN
         THROW 50011, 'ButtonArguments is required when ButtonActivationType is Protocol.', 1;
 
     DECLARE @ButtonUriSchemeSeparator int = CHARINDEX(':', @ButtonArguments);
+    DECLARE @ButtonUriScheme varchar(20) = LOWER(LEFT(@ButtonArguments, @ButtonUriSchemeSeparator - 1));
     IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND (
         @ButtonUriSchemeSeparator <= 1
         OR SUBSTRING(@ButtonArguments, 1, 1) NOT LIKE '[A-Za-z]'
         OR PATINDEX('%[^A-Za-z0-9+.-]%', LEFT(@ButtonArguments, @ButtonUriSchemeSeparator - 1)) > 0
+        OR (@ButtonUriScheme IN ('http','https','ftp','file','ws','wss') AND @ButtonArguments NOT LIKE @ButtonUriScheme + '://%')
     )
         THROW 50012, 'ButtonArguments must look like a valid absolute URI when ButtonActivationType is Protocol.', 1;
 

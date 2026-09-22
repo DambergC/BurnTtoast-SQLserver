@@ -257,7 +257,8 @@ Describe 'ToastSql module' {
                     $global:ButtonInvocations[0].Content | Should -Be 'Open'
                     $global:ButtonInvocations[0].Arguments | Should -Be 'https://example.test'
                     $global:ButtonInvocations[0].ActivationType | Should -Be 'Protocol'
-                    $result.Parameters.Button.Content | Should -Be 'Open'
+                    @($result.Parameters.Button).Count | Should -Be 1
+                    $result.Parameters.Button[0].Content | Should -Be 'Open'
                     $result.Warnings.Count | Should -Be 0
                 } finally {
                     Remove-Variable ButtonInvocations -Scope Global -ErrorAction SilentlyContinue

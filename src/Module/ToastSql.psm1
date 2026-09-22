@@ -261,7 +261,7 @@ function Get-ToastNotificationParameters {
                 $newButtonParameters['Arguments'] = [string]$buttonArguments
             }
 
-            $parameters['Button'] = New-BTButton @newButtonParameters
+            $parameters['Button'] = @(New-BTButton @newButtonParameters)
         } else {
             $warnings.Add("Installed BurntToast does not support button actions. MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') will be shown without a button.")
         }
