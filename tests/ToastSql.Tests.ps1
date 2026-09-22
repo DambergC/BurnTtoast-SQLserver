@@ -15,8 +15,16 @@ Describe 'ToastSql module' {
         $connectionString = Get-ToastConnectionString $c
         $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($connectionString)
 
-        $builder['User ID'] | Should -Be 'toastuser'
-        $builder['Password'] | Should -Be 'toastpass'
+        $builder['Integrated Security'] | Should -BeFalse
+        $builder['User ID'] | Should -Be ''
+        $builder['Password'] | Should -Be ''
+    }
+    It 'builds a SqlCredential object from static SqlCredential data' {
+        $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$false;SqlCredential=@{UserName='toastuser';Password='toastpass'};Encrypt=$true;TrustServerCertificate=$false;CommandTimeoutSeconds=15}
+        $credential = Get-ToastSqlCredential $c
+
+        $credential.GetType().FullName | Should -Be 'System.Data.SqlClient.SqlCredential'
+        $credential.UserId | Should -Be 'toastuser'
     }
     It 'rejects non-boolean connection flags when building a connection string' {
         $c=@{SqlServer='sql01';SqlPort=1433;SqlDatabase='ToastNotifications';UseIntegratedSecurity=$true;Encrypt='false';TrustServerCertificate=$false;CommandTimeoutSeconds=15}

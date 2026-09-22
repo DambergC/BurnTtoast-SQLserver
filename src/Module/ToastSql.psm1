@@ -32,6 +32,23 @@ function Get-ToastSqlCredentialValues {
     throw "Config file '$Path' setting SqlCredential must be a PSCredential or a hashtable with UserName and Password when UseIntegratedSecurity = `$false."
 }
 
+function Get-ToastSqlCredential {
+    param([hashtable]$Config)
+
+    if ($Config['UseIntegratedSecurity']) {
+        return $null
+    }
+
+    if (-not $Config.ContainsKey('SqlCredential') -or $null -eq $Config['SqlCredential']) {
+        throw "Config setting SqlCredential is required when UseIntegratedSecurity = `$false."
+    }
+
+    $credential = Get-ToastSqlCredentialValues -SqlCredential $Config['SqlCredential']
+    $securePassword = ConvertTo-SecureString -String $credential.Password -AsPlainText -Force
+    $securePassword.MakeReadOnly()
+    return [System.Data.SqlClient.SqlCredential]::new($credential.UserName, $securePassword)
+}
+
 function Import-ToastConfig {
     [CmdletBinding()]
     param(
@@ -175,23 +192,17 @@ function Get-ToastConnectionString {
         return $builder.ConnectionString
     }
 
-    if (-not $Config.ContainsKey('SqlCredential') -or $null -eq $Config['SqlCredential']) {
-        throw "Config setting SqlCredential is required when UseIntegratedSecurity = `$false."
-    }
-
-    $credential = Get-ToastSqlCredentialValues -SqlCredential $Config['SqlCredential']
     $builder['Integrated Security'] = $false
-    $builder['User ID'] = $credential.UserName
-    $builder['Password'] = $credential.Password
     return $builder.ConnectionString
 }
 
 function Invoke-ToastSql {
-    param([string]$ConnectionString,[string]$CommandText,[hashtable]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
+    param([string]$ConnectionString,[System.Data.SqlClient.SqlCredential]$SqlCredential,[string]$CommandText,[hashtable]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
     $command = $null
     $reader = $null
     try {
+        if ($null -ne $SqlCredential) { $connection.Credential = $SqlCredential }
         $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
         foreach($name in $Parameters.Keys) { $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::NVarChar,4000); $p.Value=if($null -eq $Parameters[$name]) {[DBNull]::Value} else {$Parameters[$name]} }
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
@@ -203,4 +214,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Invoke-ToastSql
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql
