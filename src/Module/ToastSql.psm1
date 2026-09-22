@@ -7,7 +7,7 @@ $script:ToastSupportedImageContentTypes = @{
     'image/bmp' = '.bmp'
 }
 $script:ToastMaxImageBytes = 5MB
-$script:ToastTemporaryFilePrefix = "BurnTtoast-SQLserver-$PID-"
+$script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
 $script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
 $script:ToastSqlNullParameterDefinitions = @{
@@ -155,7 +155,12 @@ function Clear-StaleToastTemporaryFiles {
     foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*")) {
         try {
             $fileInfo = [System.IO.FileInfo]::new($filePath)
-            if (($supportedExtensions -contains $fileInfo.Extension.ToLowerInvariant()) -and $fileInfo.LastWriteTimeUtc -lt $cutoffUtc) {
+            $processIdSegment = $fileInfo.BaseName.Substring($script:ToastTemporaryFilePrefix.Length).Split('-')[0]
+            $ownerProcessId = 0
+            $hasOwnerProcessId = [int]::TryParse($processIdSegment, [ref]$ownerProcessId)
+            $ownerProcessIsRunning = $hasOwnerProcessId -and $null -ne (Get-Process -Id $ownerProcessId -ErrorAction SilentlyContinue)
+
+            if (($supportedExtensions -contains $fileInfo.Extension.ToLowerInvariant()) -and $fileInfo.LastWriteTimeUtc -lt $cutoffUtc -and -not $ownerProcessIsRunning) {
                 Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
             }
         } catch {
@@ -557,7 +562,7 @@ function Get-ToastNotificationParameters {
                     Test-ToastImageSize -ImageBytes $imageBytes -ParameterName $mapping.ParameterName
                     $temporaryImagePath = $null
                     try {
-                        $temporaryImagePath = Join-Path (Get-ToastTemporaryImageDirectory) "$($script:ToastTemporaryFilePrefix)$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
+                        $temporaryImagePath = Join-Path (Get-ToastTemporaryImageDirectory) "$($script:ToastTemporaryFilePrefix)$PID-$([guid]::NewGuid().ToString('N'))$($script:ToastSupportedImageContentTypes[$normalizedContentType])"
                         [System.IO.File]::WriteAllBytes($temporaryImagePath, $imageBytes)
                         $temporaryFiles.Add($temporaryImagePath)
                         $value = $temporaryImagePath

@@ -187,7 +187,7 @@ FROM dbo.vw_ToastMessageLocal;
 - Använd parametriserade SQL-kommandon; ändra inte scriptet till strängkonkatenering.
 - BurntToast från PSGallery bör ersättas av en internt signerad eller speglad paketkälla i produktion.
 - Binära bilder lagras i databasen. Planera därför för ökat lagringsbehov, backupstorlek och eventuell rensning av gamla toast-rader om stora bilder används ofta.
-- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, `sql/003-toast-button.sql` och vid behov `sql/004-local-time-reporting.sql` i ordning. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` igen för att lägga till de nya binärkolumnerna och procedurparametrarna. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
+- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till de nya binärkolumnerna och procedurparametrarna. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
 
 ## Felsökning
 
