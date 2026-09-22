@@ -104,16 +104,16 @@ function Import-ToastConfig {
         }
 
         $clientName = $config['ClientName']
-        if ($null -ne $clientName -and $clientName -isnot [string]) {
-            throw "Config file '$Path' setting ClientName must be a string or `$null."
-        }
-
-        if ([string]::IsNullOrWhiteSpace($clientName)) {
+        if ($null -eq $clientName) {
             if ([string]::IsNullOrWhiteSpace($env:COMPUTERNAME)) {
                 throw "Config file '$Path' leaves ClientName empty and the COMPUTERNAME environment variable is not available. Set ClientName explicitly or ensure COMPUTERNAME is defined."
             }
 
             $config['ClientName'] = $env:COMPUTERNAME
+        } elseif ($clientName -isnot [string]) {
+            throw "Config file '$Path' setting ClientName must be a string or `$null."
+        } elseif ([string]::IsNullOrWhiteSpace($clientName)) {
+            throw "Config file '$Path' setting ClientName must be a non-empty string or `$null."
         }
     }
 

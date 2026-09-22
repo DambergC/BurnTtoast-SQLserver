@@ -161,6 +161,27 @@ Describe 'ToastSql module' {
             { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a string or `$null*"
         }
 
+        It 'rejects an empty ClientName string' {
+            $configPath = Join-Path $TestDrive 'empty-client-name.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = `$true
+    ClientName = ''
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    ConnectTimeoutSeconds = 15
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*ClientName must be a non-empty string or `$null*"
+        }
+
         It 'rejects an empty required SqlServer setting' {
             $configPath = Join-Path $TestDrive 'empty-sql-server.psd1'
             Set-Content -Path $configPath -Value @"
