@@ -76,6 +76,10 @@ function Import-ToastConfig {
         throw "Config file '$Path' must define at least one value for: $($emptyCollections -join ', ')."
     }
 
+    if ($config.ContainsKey('UseIntegratedSecurity') -and $config['UseIntegratedSecurity'] -isnot [bool]) {
+        throw "Config file '$Path' setting UseIntegratedSecurity must be `$true or `$false."
+    }
+
     if ($config.ContainsKey('UseIntegratedSecurity') -and -not $config['UseIntegratedSecurity']) {
         if (-not $config.ContainsKey('SqlCredential') -or $null -eq $config['SqlCredential']) {
             throw "Config file '$Path' sets UseIntegratedSecurity = `$false, so SqlCredential must be provided as a PSCredential or as a static hashtable with UserName and Password."
@@ -118,7 +122,6 @@ function Get-ToastConnectionString {
     $builder['Initial Catalog'] = $Config.SqlDatabase
     $builder['Encrypt'] = [bool]$Config.Encrypt
     $builder['TrustServerCertificate'] = [bool]$Config.TrustServerCertificate
-    $builder['Connect Timeout'] = [int]$Config.CommandTimeoutSeconds
 
     if ($Config.UseIntegratedSecurity) {
         $builder['Integrated Security'] = $true

@@ -232,5 +232,25 @@ Describe 'ToastSql module' {
             $config.UseIntegratedSecurity | Should -BeFalse
             $config.SqlCredential.UserName | Should -Be 'toastuser'
         }
+
+        It 'rejects a non-boolean UseIntegratedSecurity value' {
+            $configPath = Join-Path $TestDrive 'invalid-integrated-security.psd1'
+            Set-Content -Path $configPath -Value @"
+@{
+    SqlServer = 'sql01'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = 'false'
+    ClientName = `$null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = `$null
+    Encrypt = `$true
+    TrustServerCertificate = `$false
+    CommandTimeoutSeconds = 15
+}
+"@
+
+            { Import-ToastConfig -Path $configPath -RequiredProperties $requiredClientSettings -NullableProperties $nullableClientSettings -NonEmptyProperties $nonEmptyClientSettings -ResolveClientName } | Should -Throw "*UseIntegratedSecurity must be `$true or `$false*"
+        }
     }
 }
