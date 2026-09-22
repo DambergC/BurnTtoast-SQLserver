@@ -371,12 +371,13 @@ Describe 'ToastSql module' {
     }
 
     Context 'local-time reporting SQL compatibility' {
-        It 'keeps @TimeZoneName parameters but does not perform UTC timezone conversion' {
+        It 'keeps @TimeZoneName and avoids UTC-to-local conversion assumptions' {
             $scriptPath = Join-Path $PSScriptRoot '..\sql\004-local-time-reporting.sql'
             $scriptText = Get-Content -Path $scriptPath -Raw
 
-            $scriptText | Should -Match 'ufn_ToastMessageLocal\s*\r?\n\(\r?\n\s*@TimeZoneName sysname = NULL'
-            $scriptText | Should -Match 'ufn_ToastDeliveryLocal\s*\r?\n\(\r?\n\s*@TimeZoneName sysname = NULL'
+            $scriptText | Should -Match "DECLARE @DefaultLocalTimeZone sysname = N'W\. Europe Standard Time';"
+            $scriptText | Should -Match "m\.CreatedUtc AT TIME ZONE @TimeZoneName"
+            $scriptText | Should -Match "d\.LastAttemptUtc AT TIME ZONE @TimeZoneName"
             $scriptText | Should -Not -Match "AT TIME ZONE ''UTC''"
         }
     }

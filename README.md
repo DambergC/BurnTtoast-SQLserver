@@ -130,10 +130,10 @@ Vid uppgradering kan äldre rader i `DeliveredUtc`, `LastAttemptUtc` och `LastSe
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
 - `dbo.vw_ToastDeliveryLocal`
-- `dbo.ufn_ToastMessageLocal(@TimeZoneName)` (`@TimeZoneName` ignoreras för bakåtkompatibilitet)
-- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)` (`@TimeZoneName` ignoreras för bakåtkompatibilitet)
+- `dbo.ufn_ToastMessageLocal(@TimeZoneName)` (`@TimeZoneName` styr vilken tidszons-offset som visas i `*LocalTime`-kolumnerna)
+- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)` (`@TimeZoneName` styr vilken tidszons-offset som visas i `*LocalTime`-kolumnerna)
 
-Objekten behåller samma namn men gör inte längre någon tidszonskonvertering; `*Local*`-kolumnerna returnerar samma lokala tid som lagras i tabellerna.
+Objekten behåller samma namn och konverterar inte längre från UTC till lokal tid; `*LocalTime`-kolumnerna presenterar lokalt lagrade tidsvärden som `datetimeoffset`.
 För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
 `sql/002-toast-design-repeat.sql` flyttar även befintliga schematider (`NextShowUtc`/`LeaseExpiresUtc`) från tidigare UTC-baserad lagring till serverns lokala tid vid uppgradering.
 Vid uppgradering från äldre UTC-lagring: sätt `@ServerLocalTimeZone` högst upp i `sql/002-toast-design-repeat.sql` till serverns Windows-tidszon (t.ex. `W. Europe Standard Time`) före körning så att konverteringen använder rätt DST-regler.
