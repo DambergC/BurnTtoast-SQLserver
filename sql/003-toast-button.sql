@@ -58,9 +58,11 @@ BEGIN
     IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND @ButtonArguments IS NULL
         THROW 50011, 'ButtonArguments is required when ButtonActivationType is Protocol.', 1;
 
+    DECLARE @ButtonUriSchemeSeparator int = CHARINDEX(':', @ButtonArguments);
     IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND (
-        PATINDEX('[A-Za-z][A-Za-z0-9+.-]%:%', @ButtonArguments) <> 1
-        OR CHARINDEX(':', @ButtonArguments) <= 1
+        @ButtonUriSchemeSeparator <= 1
+        OR SUBSTRING(@ButtonArguments, 1, 1) NOT LIKE '[A-Za-z]'
+        OR PATINDEX('%[^A-Za-z0-9+.-]%', LEFT(@ButtonArguments, @ButtonUriSchemeSeparator - 1)) > 0
     )
         THROW 50012, 'ButtonArguments must look like a valid absolute URI when ButtonActivationType is Protocol.', 1;
 
