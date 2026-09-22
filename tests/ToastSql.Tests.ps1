@@ -376,8 +376,12 @@ Describe 'ToastSql module' {
             $scriptText = Get-Content -Path $scriptPath -Raw
 
             $scriptText | Should -Match "DECLARE @DefaultLocalTimeZone sysname = N'W\. Europe Standard Time';"
+            $scriptText | Should -Match "ufn_ToastMessageLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
+            $scriptText | Should -Match "ufn_ToastDeliveryLocal\s*\(\s*@TimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N''',\s*@ServerTimeZoneName sysname = N'''\s*\+ @EscapedDefaultLocalTimeZone \+ N'''"
             $scriptText | Should -Match "\(m\.CreatedUtc AT TIME ZONE @ServerTimeZoneName\) AT TIME ZONE @TimeZoneName"
             $scriptText | Should -Match "\(d\.LastAttemptUtc AT TIME ZONE @ServerTimeZoneName\) AT TIME ZONE @TimeZoneName"
+            $scriptText | Should -Match "m\.CreatedUtc AS CreatedServerLocalTime"
+            $scriptText | Should -Match "d\.LastAttemptUtc AS LastAttemptServerLocalTime"
             $scriptText | Should -Not -Match "AT TIME ZONE ''UTC''"
         }
     }

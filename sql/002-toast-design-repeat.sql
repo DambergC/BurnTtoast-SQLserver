@@ -46,6 +46,22 @@ BEGIN
             END
         WHERE NextShowUtc IS NOT NULL
            OR LeaseExpiresUtc IS NOT NULL;
+
+        UPDATE dbo.ToastDelivery
+        SET LastAttemptUtc = CASE
+                WHEN LastAttemptUtc IS NULL THEN NULL
+                ELSE CAST(((LastAttemptUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+            END,
+            DeliveredUtc = CASE
+                WHEN DeliveredUtc IS NULL THEN NULL
+                ELSE CAST(((DeliveredUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+            END
+        WHERE LastAttemptUtc IS NOT NULL
+           OR DeliveredUtc IS NOT NULL;
+
+        UPDATE dbo.ToastClient
+        SET LastSeenUtc = CAST(((LastSeenUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
+        WHERE LastSeenUtc IS NOT NULL;
     END;
 
     IF @NextShowUtcDefaultConstraintName IS NOT NULL
