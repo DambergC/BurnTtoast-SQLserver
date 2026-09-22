@@ -150,7 +150,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_RecordToastDelivery
     @MessageId bigint,
     @Status varchar(20),
     @ErrorMessage nvarchar(2000) = NULL,
-    @LeaseId uniqueidentifier = NULL
+    @LeaseId uniqueidentifier
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -158,6 +158,7 @@ BEGIN
 
     DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName);
     IF @ClientId IS NULL RETURN;
+    IF @LeaseId IS NULL THROW 50005, 'LeaseId is required when recording a toast delivery.', 1;
 
     DECLARE @Now datetime2(0) = SYSUTCDATETIME();
     DECLARE @RepeatIntervalSeconds int;
@@ -174,9 +175,9 @@ BEGIN
     INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
     WHERE d.MessageId = @MessageId
       AND d.ClientId = @ClientId
-      AND (@LeaseId IS NULL OR d.LeaseId = @LeaseId);
+      AND d.LeaseId = @LeaseId;
 
-    IF @ShowCount IS NULL RETURN;
+    IF @ShowCount IS NULL THROW 50006, 'Toast delivery lease was not found or is no longer active for this client.', 1;
 
     IF @Status = 'Delivered'
     BEGIN
@@ -203,7 +204,9 @@ BEGIN
             LeaseExpiresUtc = NULL
         WHERE MessageId = @MessageId
           AND ClientId = @ClientId
-          AND (@LeaseId IS NULL OR LeaseId = @LeaseId);
+          AND LeaseId = @LeaseId;
+
+        IF @@ROWCOUNT = 0 THROW 50006, 'Toast delivery lease was not found or is no longer active for this client.', 1;
 
         RETURN;
     END
@@ -217,5 +220,7 @@ BEGIN
         LeaseExpiresUtc = NULL
     WHERE MessageId = @MessageId
       AND ClientId = @ClientId
-      AND (@LeaseId IS NULL OR LeaseId = @LeaseId);
+      AND LeaseId = @LeaseId;
+
+    IF @@ROWCOUNT = 0 THROW 50006, 'Toast delivery lease was not found or is no longer active for this client.', 1;
 END;

@@ -143,6 +143,33 @@ Describe 'ToastSql module' {
             $result.Parameters.Sound | Should -Be 'Mail'
             $result.Parameters.Urgent | Should -BeTrue
         }
+
+        It 'treats DBNull toast metadata as missing values' {
+            $table = [System.Data.DataTable]::new()
+            [void]$table.Columns.Add('MessageId', [long])
+            [void]$table.Columns.Add('Title', [string])
+            [void]$table.Columns.Add('Body', [string])
+            [void]$table.Columns.Add('AppLogoPath', [string])
+            [void]$table.Columns.Add('HeroImagePath', [string])
+            [void]$table.Columns.Add('Sound', [string])
+            [void]$table.Columns.Add('IsUrgent', [bool])
+
+            $row = $table.NewRow()
+            $row.MessageId = 100
+            $row.Title = 'DBNull title'
+            $row.Body = 'DBNull body'
+            $row['AppLogoPath'] = [DBNull]::Value
+            $row['HeroImagePath'] = [DBNull]::Value
+            $row['Sound'] = [DBNull]::Value
+            $row.IsUrgent = $false
+            [void]$table.Rows.Add($row)
+
+            $result = Get-ToastNotificationParameters -ToastRow $table.Rows[0] -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+            @($result.Parameters.Keys) | Should -Be @('Text')
+            $result.Parameters.Text | Should -Be @('DBNull title','DBNull body')
+            $result.Warnings.Count | Should -Be 0
+        }
     }
 
     Context 'config loading' {

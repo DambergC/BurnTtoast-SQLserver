@@ -22,6 +22,7 @@ if($Register){Invoke-Registration;Write-Output "Registered $computer";if($Once){
 function Invoke-Poll {
     $rows=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_GetPendingToast @ComputerName' -Parameters @{ComputerName=$computer} -CommandTimeoutSeconds $config.CommandTimeoutSeconds
     foreach($row in $rows){
+        $toastDisplayed = $false
         try{
             $toastDetails = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters $supportedToastParameters
             foreach ($warning in $toastDetails.Warnings) {
@@ -30,10 +31,15 @@ function Invoke-Poll {
 
             $toastParameters = $toastDetails.Parameters
             New-BurntToastNotification @toastParameters
+            $toastDisplayed = $true
             Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null;LeaseId=[string]$row.LeaseId} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
         }catch{
             $toastErrorRecord = $_
             $toastErrorMessage = $toastErrorRecord.Exception.Message
+            if ($toastDisplayed) {
+                throw
+            }
+
             try {
                 Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage,@LeaseId' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Failed';ErrorMessage=$toastErrorMessage;LeaseId=[string]$row.LeaseId} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
             } catch {

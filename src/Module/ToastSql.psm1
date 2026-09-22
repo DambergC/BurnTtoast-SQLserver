@@ -127,15 +127,25 @@ function Get-ToastObjectPropertyValue {
 
     if ($InputObject -is [System.Data.DataRow]) {
         if ($InputObject.Table.Columns.Contains($PropertyName)) {
-            return $InputObject[$PropertyName]
+            $value = $InputObject[$PropertyName]
+            if ($value -is [System.DBNull]) {
+                return $null
+            }
+
+            return $value
         }
 
         return $null
     }
 
-    $property = $InputObject.PSObject.Properties[$PropertyName]
-    if ($null -ne $property) {
-        return $property.Value
+    $properties = $InputObject.PSObject.Properties.Match($PropertyName)
+    if ($properties.Count -gt 0) {
+        $value = $properties[0].Value
+        if ($value -is [System.DBNull]) {
+            return $null
+        }
+
+        return $value
     }
 
     return $null
@@ -178,7 +188,7 @@ function Get-ToastNotificationParameters {
     }
 
     $isUrgent = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'IsUrgent'
-    if ($isUrgent -eq $true -or $isUrgent -eq 1) {
+    if ($null -ne $isUrgent -and [System.Convert]::ToBoolean($isUrgent)) {
         if ($supportedParameterLookup.ContainsKey('Urgent')) {
             $parameters['Urgent'] = $true
         } else {
