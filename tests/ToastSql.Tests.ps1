@@ -148,6 +148,20 @@ Describe 'ToastSql module' {
                 }
             }
         }
+
+        It 'rejects empty binary image payloads' {
+            InModuleScope ToastSql {
+                { Resolve-ToastImageInput -ImageBytes ([byte[]]@()) -ContentType 'image/png' -ParameterName 'AppLogo' } |
+                    Should -Throw '*empty array*'
+            }
+        }
+
+        It 'rejects unsupported binary image content types' {
+            InModuleScope ToastSql {
+                { Resolve-ToastImageInput -ImageBytes ([byte[]](1,2,3)) -ContentType 'image/webp' -ParameterName 'HeroImage' } |
+                    Should -Throw '*HeroImage content type is required and must be one of*'
+            }
+        }
     }
 
     Context 'toast notification parameter building' {
@@ -208,6 +222,44 @@ Describe 'ToastSql module' {
                     Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
                 }
             }
+        }
+
+        It 'prefers binary image payload over path when both are available' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                AppLogoContentType = 'image/png'
+            }
+
+            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
+
+            try {
+                $result.Parameters.AppLogo | Should -Not -Be 'C:\Toast\logo.png'
+                [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
+                (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
+                $result.TemporaryFiles.Count | Should -Be 1
+            } finally {
+                foreach ($temporaryFile in $result.TemporaryFiles) {
+                    Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'rejects empty binary payloads even when a path is also present' {
+            $row = [pscustomobject]@{
+                MessageId = 42
+                Title = 'Title'
+                Body = 'Body'
+                AppLogoPath = 'C:\Toast\logo.png'
+                AppLogoBytes = [byte[]]@()
+                AppLogoContentType = 'image/png'
+            }
+
+            { Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo') } |
+                Should -Throw '*empty array*'
         }
 
         It 'adds a button when supported and available' {
