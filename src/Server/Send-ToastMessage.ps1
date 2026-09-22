@@ -25,7 +25,7 @@ $sqlCredential=Get-ToastSqlCredential $config
 $repeatSettings = Resolve-ToastRepeatSettings -RepeatIntervalSeconds $RepeatIntervalSeconds -RepeatIntervalMinutes $RepeatIntervalMinutes -RepeatCount $RepeatCount
 $buttonSettings = Resolve-ToastButtonSettings -ButtonText $ButtonText -ButtonArguments $ButtonArguments -ButtonActivationType $ButtonActivationType
 $sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc,@AppLogoPath,@HeroImagePath,@Sound,@IsUrgent,@RepeatIntervalSeconds,@RepeatCount,@ButtonText,@ButtonArguments,@ButtonActivationType'
-$params=@{
+$queueParameters=@{
     GroupName=$GroupName
     Title=$Title
     Body=$Body
@@ -40,5 +40,6 @@ $params=@{
     ButtonArguments=$buttonSettings.ButtonArguments
     ButtonActivationType=$buttonSettings.ButtonActivationType
 }
-$result=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters $params -CommandTimeoutSeconds $config.CommandTimeoutSeconds
+$queueResult=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters $queueParameters -CommandTimeoutSeconds $config.CommandTimeoutSeconds
+$result=Resolve-ToastQueueResult -Result $queueResult
 Write-Output "Queued message $($result.MessageId) for group '$GroupName'."
