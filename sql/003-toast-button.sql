@@ -58,7 +58,10 @@ BEGIN
     IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND @ButtonArguments IS NULL
         THROW 50011, 'ButtonArguments is required when ButtonActivationType is Protocol.', 1;
 
-    IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND (CHARINDEX('://', @ButtonArguments) <= 1)
+    IF @ButtonText IS NOT NULL AND @ButtonActivationType = 'Protocol' AND (
+        PATINDEX('[A-Za-z][A-Za-z0-9+.-]%:%', @ButtonArguments) <> 1
+        OR CHARINDEX(':', @ButtonArguments) <= 1
+    )
         THROW 50012, 'ButtonArguments must look like a valid absolute URI when ButtonActivationType is Protocol.', 1;
 
     DECLARE @GroupId int = (SELECT GroupId FROM dbo.ToastGroup WHERE GroupName = @GroupName AND IsActive = 1);
