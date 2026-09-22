@@ -44,10 +44,19 @@ function ConvertTo-ToastPositiveInt {
         throw "Config file '$Path' setting $SettingName must be a positive integer."
     }
 
-    try {
+    if ($Value -is [uint64]) {
+        if ($Value -gt [uint64][int]::MaxValue) {
+            throw "Config file '$Path' setting $SettingName must be a positive integer."
+        }
+
         $normalizedValue = [int]$Value
-    } catch {
-        throw "Config file '$Path' setting $SettingName must be a positive integer."
+    } else {
+        $wideValue = [long]$Value
+        if ($wideValue -gt [int]::MaxValue) {
+            throw "Config file '$Path' setting $SettingName must be a positive integer."
+        }
+
+        $normalizedValue = [int]$wideValue
     }
 
     if ($normalizedValue -le 0) {

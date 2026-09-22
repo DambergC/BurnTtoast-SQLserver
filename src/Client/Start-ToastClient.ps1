@@ -19,6 +19,19 @@ function Invoke-Registration {
 if($Register){Invoke-Registration;Write-Output "Registered $computer";if($Once){return}}
 function Invoke-Poll {
     $rows=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_GetPendingToast @ComputerName' -Parameters @{ComputerName=$computer} -CommandTimeoutSeconds $config.CommandTimeoutSeconds
-    foreach($row in $rows){try{New-BurntToastNotification -Text @($row.Title,$row.Body);Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery}catch{Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Failed';ErrorMessage=$_.Exception.Message} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery}}
+    foreach($row in $rows){
+        try{
+            New-BurntToastNotification -Text @($row.Title,$row.Body)
+            Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Delivered';ErrorMessage=$null} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
+        }catch{
+            $toastErrorRecord = $_
+            $toastErrorMessage = $toastErrorRecord.Exception.Message
+            try {
+                Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText 'EXEC dbo.usp_RecordToastDelivery @ComputerName,@MessageId,@Status,@ErrorMessage' -Parameters @{ComputerName=$computer;MessageId=$row.MessageId;Status='Failed';ErrorMessage=$toastErrorMessage} -CommandTimeoutSeconds $config.CommandTimeoutSeconds -NonQuery
+            } catch {
+                throw $toastErrorRecord
+            }
+        }
+    }
 }
 do{Invoke-Poll;if($Once){break};Start-Sleep -Seconds $PollSeconds}while($true)
