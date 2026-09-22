@@ -582,17 +582,21 @@ function Get-ToastConnectionString {
 }
 
 function Invoke-ToastSql {
+    [CmdletBinding()]
     param([string]$ConnectionString,[System.Data.SqlClient.SqlCredential]$SqlCredential,[string]$CommandText,[System.Collections.IDictionary]$Parameters=@{},[ValidateRange(1,[int]::MaxValue)][int]$CommandTimeoutSeconds=30,[switch]$NonQuery)
     $connection = [System.Data.SqlClient.SqlConnection]::new($ConnectionString)
     $command = $null
     $reader = $null
+    $originalErrorActionPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = 'Stop'
         if ($null -ne $SqlCredential) { $connection.Credential = $SqlCredential }
         $connection.Open(); $command=$connection.CreateCommand(); $command.CommandText=$CommandText; $command.CommandTimeout=$CommandTimeoutSeconds
         Add-ToastSqlParameters -Command $command -Parameters $Parameters
         if($NonQuery){[void]$command.ExecuteNonQuery();return}
         $reader=$command.ExecuteReader(); $table=[System.Data.DataTable]::new(); $table.Load($reader); return $table
     } finally {
+        $ErrorActionPreference = $originalErrorActionPreference
         if ($null -ne $reader) { $reader.Dispose() }
         if ($null -ne $command) { $command.Dispose() }
         $connection.Dispose()

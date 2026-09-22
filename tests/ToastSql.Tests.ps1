@@ -924,6 +924,7 @@ Describe 'ToastSql module' {
 
         It 'passes a hashtable and null sound when sound is omitted' {
             $global:capturedQueueParameters = $null
+            $global:capturedButtonResolverBoundParameters = $null
 
             function global:Import-Module {}
             function global:Import-ToastConfig {
@@ -942,7 +943,19 @@ Describe 'ToastSql module' {
             function global:Get-ToastConnectionString { 'Server=fake;' }
             function global:Get-ToastSqlCredential { $null }
             function global:Resolve-ToastRepeatSettings { @{ RepeatIntervalSeconds = $null; RepeatCount = $null } }
-            function global:Resolve-ToastButtonSettings { @{ ButtonText = $null; ButtonArguments = $null; ButtonActivationType = $null } }
+            function global:Resolve-ToastButtonSettings {
+                [CmdletBinding()]
+                param(
+                    [string]$ButtonText,
+                    [string]$ButtonArguments,
+                    [ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
+                )
+                $global:capturedButtonResolverBoundParameters = @{}
+                foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+                    $global:capturedButtonResolverBoundParameters[$entry.Key] = $entry.Value
+                }
+                @{ ButtonText = $null; ButtonArguments = $null; ButtonActivationType = $null }
+            }
             function global:Invoke-ToastSql {
                 param($ConnectionString,$SqlCredential,$CommandText,$Parameters,$CommandTimeoutSeconds,[switch]$NonQuery)
                 $global:capturedQueueParameters = $Parameters
@@ -959,9 +972,110 @@ Describe 'ToastSql module' {
                 $global:capturedQueueParameters.GetType().FullName | Should -Be 'System.Collections.Hashtable'
                 $global:capturedQueueParameters.ContainsKey('Sound') | Should -BeTrue
                 $global:capturedQueueParameters.Sound | Should -Be $null
+                $global:capturedButtonResolverBoundParameters.ContainsKey('ButtonActivationType') | Should -BeFalse
                 $output | Should -Be "Queued message 99 for group 'IT-TEST'."
             } finally {
                 Remove-Variable capturedQueueParameters -Scope Global -ErrorAction SilentlyContinue
+                Remove-Variable capturedButtonResolverBoundParameters -Scope Global -ErrorAction SilentlyContinue
+                foreach ($functionName in @(
+                    'Import-Module',
+                    'Import-ToastConfig',
+                    'Test-ToastSqlPort',
+                    'Get-ToastConnectionString',
+                    'Get-ToastSqlCredential',
+                    'Resolve-ToastRepeatSettings',
+                    'Resolve-ToastButtonSettings',
+                    'Invoke-ToastSql',
+                    'Resolve-ToastQueueResult'
+                )) {
+                    Remove-Item "Function:\$functionName" -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'passes valid button activation values to Resolve-ToastButtonSettings' {
+            $global:capturedButtonResolverBoundParameters = $null
+
+            function global:Import-Module {}
+            function global:Import-ToastConfig {
+                @{
+                    SqlServer = 'sql01'
+                    SqlDatabase = 'ToastNotifications'
+                    SqlPort = 1433
+                    UseIntegratedSecurity = $true
+                    Encrypt = $true
+                    TrustServerCertificate = $false
+                    ConnectTimeoutSeconds = 15
+                    CommandTimeoutSeconds = 30
+                }
+            }
+            function global:Test-ToastSqlPort {}
+            function global:Get-ToastConnectionString { 'Server=fake;' }
+            function global:Get-ToastSqlCredential { $null }
+            function global:Resolve-ToastRepeatSettings { @{ RepeatIntervalSeconds = $null; RepeatCount = $null } }
+            function global:Resolve-ToastButtonSettings {
+                [CmdletBinding()]
+                param(
+                    [string]$ButtonText,
+                    [string]$ButtonArguments,
+                    [ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
+                )
+                $global:capturedButtonResolverBoundParameters = @{}
+                foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+                    $global:capturedButtonResolverBoundParameters[$entry.Key] = $entry.Value
+                }
+                @{ ButtonText = $ButtonText; ButtonArguments = $ButtonArguments; ButtonActivationType = $ButtonActivationType }
+            }
+            function global:Invoke-ToastSql { [pscustomobject]@{ MessageId = 99 } }
+            function global:Resolve-ToastQueueResult { param($Result) $Result }
+
+            try {
+                $null = & $sendToastMessageScriptPath -ConfigPath 'config.psd1' -GroupName 'IT-TEST' -Title 'Test' -Body 'Body' -ButtonText 'Open' -ButtonArguments 'https://example.test' -ButtonActivationType 'Protocol'
+
+                $global:capturedButtonResolverBoundParameters['ButtonActivationType'] | Should -Be 'Protocol'
+            } finally {
+                Remove-Variable capturedButtonResolverBoundParameters -Scope Global -ErrorAction SilentlyContinue
+                foreach ($functionName in @(
+                    'Import-Module',
+                    'Import-ToastConfig',
+                    'Test-ToastSqlPort',
+                    'Get-ToastConnectionString',
+                    'Get-ToastSqlCredential',
+                    'Resolve-ToastRepeatSettings',
+                    'Resolve-ToastButtonSettings',
+                    'Invoke-ToastSql',
+                    'Resolve-ToastQueueResult'
+                )) {
+                    Remove-Item "Function:\$functionName" -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'preserves SQL exceptions instead of masking them with queue-result errors' {
+            function global:Import-Module {}
+            function global:Import-ToastConfig {
+                @{
+                    SqlServer = 'sql01'
+                    SqlDatabase = 'ToastNotifications'
+                    SqlPort = 1433
+                    UseIntegratedSecurity = $true
+                    Encrypt = $true
+                    TrustServerCertificate = $false
+                    ConnectTimeoutSeconds = 15
+                    CommandTimeoutSeconds = 30
+                }
+            }
+            function global:Test-ToastSqlPort {}
+            function global:Get-ToastConnectionString { 'Server=fake;' }
+            function global:Get-ToastSqlCredential { $null }
+            function global:Resolve-ToastRepeatSettings { @{ RepeatIntervalSeconds = $null; RepeatCount = $null } }
+            function global:Resolve-ToastButtonSettings { @{ ButtonText = $null; ButtonArguments = $null; ButtonActivationType = $null } }
+            function global:Invoke-ToastSql { throw [System.Exception]::new('Must declare the scalar variable "@GroupName".') }
+            function global:Resolve-ToastQueueResult { throw 'Queue toast message SQL command returned no result set.' }
+
+            try {
+                { & $sendToastMessageScriptPath -ConfigPath 'config.psd1' -GroupName 'IT-TEST' -Title 'Test' -Body 'Body' } | Should -Throw '*Must declare the scalar variable "@GroupName".*'
+            } finally {
                 foreach ($functionName in @(
                     'Import-Module',
                     'Import-ToastConfig',

@@ -23,22 +23,33 @@ Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
 $repeatSettings = Resolve-ToastRepeatSettings -RepeatIntervalSeconds $RepeatIntervalSeconds -RepeatIntervalMinutes $RepeatIntervalMinutes -RepeatCount $RepeatCount
-$buttonSettings = Resolve-ToastButtonSettings -ButtonText $ButtonText -ButtonArguments $ButtonArguments -ButtonActivationType $ButtonActivationType
+$buttonResolverParameters = @{
+    ButtonText = $ButtonText
+    ButtonArguments = $ButtonArguments
+}
+if (-not [string]::IsNullOrWhiteSpace($ButtonActivationType)) {
+    $buttonResolverParameters['ButtonActivationType'] = $ButtonActivationType
+}
+$buttonSettings = Resolve-ToastButtonSettings @buttonResolverParameters
+$normalizedSound = if ([string]::IsNullOrWhiteSpace($Sound)) { $null } else { $Sound }
+$normalizedButtonText = if ($buttonSettings -is [System.Collections.IDictionary] -and $buttonSettings.Contains('ButtonText')) { $buttonSettings['ButtonText'] } else { $null }
+$normalizedButtonArguments = if ($buttonSettings -is [System.Collections.IDictionary] -and $buttonSettings.Contains('ButtonArguments')) { $buttonSettings['ButtonArguments'] } else { $null }
+$normalizedButtonActivationType = if ($buttonSettings -is [System.Collections.IDictionary] -and $buttonSettings.Contains('ButtonActivationType')) { $buttonSettings['ButtonActivationType'] } else { $null }
 $sql='EXEC dbo.usp_QueueToastMessage @GroupName,@Title,@Body,@ExpiresUtc,@AppLogoPath,@HeroImagePath,@Sound,@IsUrgent,@RepeatIntervalSeconds,@RepeatCount,@ButtonText,@ButtonArguments,@ButtonActivationType'
-$queueParameters=@{
+[hashtable]$queueParameters=@{
     GroupName=$GroupName
     Title=$Title
     Body=$Body
     ExpiresUtc=if($ExpiresUtc){$ExpiresUtc.ToUniversalTime()}else{$null}
     AppLogoPath=if([string]::IsNullOrWhiteSpace($AppLogoPath)){$null}else{$AppLogoPath}
     HeroImagePath=if([string]::IsNullOrWhiteSpace($HeroImagePath)){$null}else{$HeroImagePath}
-    Sound=if([string]::IsNullOrWhiteSpace($Sound)){$null}else{$Sound}
+    Sound=$normalizedSound
     IsUrgent=$Urgent.IsPresent
     RepeatIntervalSeconds=$repeatSettings.RepeatIntervalSeconds
     RepeatCount=$repeatSettings.RepeatCount
-    ButtonText=$buttonSettings.ButtonText
-    ButtonArguments=$buttonSettings.ButtonArguments
-    ButtonActivationType=$buttonSettings.ButtonActivationType
+    ButtonText=$normalizedButtonText
+    ButtonArguments=$normalizedButtonArguments
+    ButtonActivationType=$normalizedButtonActivationType
 }
 $queueResult=Invoke-ToastSql -ConnectionString $conn -SqlCredential $sqlCredential -CommandText $sql -Parameters $queueParameters -CommandTimeoutSeconds $config.CommandTimeoutSeconds
 $result=Resolve-ToastQueueResult -Result $queueResult
