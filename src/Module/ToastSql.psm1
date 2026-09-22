@@ -549,6 +549,7 @@ function Get-ToastNotificationParameters {
 
             if ($supportedParameterLookup.ContainsKey($mapping.ParameterName)) {
                 if ($imageBytes -is [byte[]] -and $imageBytes.Length -gt 0) {
+                    $temporaryImagePath = $null
                     try {
                         $normalizedContentType = Get-ToastNormalizedImageContentType -ContentType ([string]$imageContentType)
                         if ($null -eq $normalizedContentType) {
@@ -561,6 +562,10 @@ function Get-ToastNotificationParameters {
                         $temporaryFiles.Add($temporaryImagePath)
                         $value = $temporaryImagePath
                     } catch {
+                        if (-not [string]::IsNullOrWhiteSpace($temporaryImagePath) -and (Test-Path -LiteralPath $temporaryImagePath)) {
+                            Remove-ToastTemporaryFiles -Paths @($temporaryImagePath)
+                        }
+
                         if (-not [string]::IsNullOrWhiteSpace([string]$pathValue)) {
                             $warnings.Add("Could not materialize binary $($mapping.ParameterName) for MessageId $(Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId'): $($_.Exception.Message) Falling back to path '$pathValue'.")
                             $value = [string]$pathValue
