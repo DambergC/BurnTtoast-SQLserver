@@ -10,6 +10,7 @@ RETURNS TABLE
 AS
 RETURN
 (
+    -- @TimeZoneName is intentionally ignored for backward compatibility.
     SELECT
         m.MessageId,
         m.GroupId,
@@ -31,6 +32,7 @@ RETURNS TABLE
 AS
 RETURN
 (
+    -- @TimeZoneName is intentionally ignored for backward compatibility.
     SELECT
         d.MessageId,
         d.ClientId,

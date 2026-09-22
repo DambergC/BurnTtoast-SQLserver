@@ -128,8 +128,8 @@ All intern lagring/schemaläggning använder serverns lokala tid (`CreatedUtc`, 
 `sql/004-local-time-reporting.sql` skapar:
 - `dbo.vw_ToastMessageLocal`
 - `dbo.vw_ToastDeliveryLocal`
-- `dbo.ufn_ToastMessageLocal(@TimeZoneName)`
-- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)`
+- `dbo.ufn_ToastMessageLocal(@TimeZoneName)` (`@TimeZoneName` ignoreras för bakåtkompatibilitet)
+- `dbo.ufn_ToastDeliveryLocal(@TimeZoneName)` (`@TimeZoneName` ignoreras för bakåtkompatibilitet)
 
 Objekten behåller samma namn men gör inte längre någon tidszonskonvertering; `*Local*`-kolumnerna returnerar samma lokala tid som lagras i tabellerna.
 
