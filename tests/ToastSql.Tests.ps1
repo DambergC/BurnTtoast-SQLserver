@@ -412,6 +412,26 @@ Describe 'ToastSql module' {
             $parameter.Size | Should -Be -1
             ($parameter.Value -join ',') | Should -Be '1,2,3,4'
         }
+
+        It 'preserves known SQL types when null values are bound' {
+            $result = InModuleScope ToastSql {
+                $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
+                Add-ToastSqlParameter -Command $moduleCmd -Name 'AppLogoBytes' -Value $null
+                Add-ToastSqlParameter -Command $moduleCmd -Name 'ExpiresUtc' -Value $null
+                Add-ToastSqlParameter -Command $moduleCmd -Name 'RepeatCount' -Value $null
+
+                [pscustomobject]@{
+                    AppLogoBytes = $moduleCmd.Parameters['@AppLogoBytes']
+                    ExpiresUtc = $moduleCmd.Parameters['@ExpiresUtc']
+                    RepeatCount = $moduleCmd.Parameters['@RepeatCount']
+                }
+            }
+
+            $result.AppLogoBytes.SqlDbType | Should -Be ([System.Data.SqlDbType]::VarBinary)
+            $result.AppLogoBytes.Size | Should -Be -1
+            $result.ExpiresUtc.SqlDbType | Should -Be ([System.Data.SqlDbType]::DateTime2)
+            $result.RepeatCount.SqlDbType | Should -Be ([System.Data.SqlDbType]::Int)
+        }
     }
 
     Context 'toast notification cleanup' {

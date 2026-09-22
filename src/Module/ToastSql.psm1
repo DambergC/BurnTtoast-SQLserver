@@ -9,6 +9,20 @@ $script:ToastSupportedImageContentTypes = @{
 $script:ToastMaxImageBytes = 5MB
 $script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
 $script:ToastTemporaryFileRetentionMinutes = 60
+$script:ToastSqlNullParameterDefinitions = @{
+    AppLogoBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
+    HeroImageBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
+    AppLogoContentType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 100 }
+    HeroImageContentType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 100 }
+    Sound = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
+    IsUrgent = @{ SqlDbType = [System.Data.SqlDbType]::Bit }
+    RepeatIntervalSeconds = @{ SqlDbType = [System.Data.SqlDbType]::Int }
+    RepeatCount = @{ SqlDbType = [System.Data.SqlDbType]::Int }
+    MessageId = @{ SqlDbType = [System.Data.SqlDbType]::BigInt }
+    LeaseId = @{ SqlDbType = [System.Data.SqlDbType]::UniqueIdentifier }
+    ExpiresUtc = @{ SqlDbType = [System.Data.SqlDbType]::DateTime2 }
+    ButtonActivationType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
+}
 
 function Get-ToastSqlCredentialValues {
     param(
@@ -131,17 +145,16 @@ function Test-ToastImageSize {
 function Clear-StaleToastTemporaryFiles {
     $temporaryDirectory = [System.IO.Path]::GetTempPath()
     $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$script:ToastTemporaryFileRetentionMinutes)
+    $supportedExtensions = @($script:ToastSupportedImageContentTypes.Values)
 
-    foreach ($extension in $script:ToastSupportedImageContentTypes.Values) {
-        foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*$extension")) {
-            try {
-                $fileInfo = [System.IO.FileInfo]::new($filePath)
-                if ($fileInfo.LastWriteTimeUtc -lt $cutoffUtc) {
-                    Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
-                }
-            } catch {
-                continue
+    foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*")) {
+        try {
+            $fileInfo = [System.IO.FileInfo]::new($filePath)
+            if (($supportedExtensions -contains $fileInfo.Extension.ToLowerInvariant()) -and $fileInfo.LastWriteTimeUtc -lt $cutoffUtc) {
+                Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
             }
+        } catch {
+            continue
         }
     }
 }
@@ -393,7 +406,17 @@ function Add-ToastSqlParameter {
     )
 
     if ($null -eq $Value) {
-        $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::NVarChar, 4000)
+        if ($script:ToastSqlNullParameterDefinitions.ContainsKey($Name)) {
+            $parameterDefinition = $script:ToastSqlNullParameterDefinitions[$Name]
+            if ($parameterDefinition.ContainsKey('Size')) {
+                $p = $Command.Parameters.Add("@$Name", $parameterDefinition.SqlDbType, $parameterDefinition.Size)
+            } else {
+                $p = $Command.Parameters.Add("@$Name", $parameterDefinition.SqlDbType)
+            }
+        } else {
+            $p = $Command.Parameters.Add("@$Name", [System.Data.SqlDbType]::NVarChar, 4000)
+        }
+
         $p.Value = [System.DBNull]::Value
         return
     }
