@@ -427,6 +427,10 @@ function Invoke-ToastSql {
             }
 
             if ($value -is [uint32] -or $value -is [int64] -or $value -is [uint64]) {
+                if ($value -is [uint64] -and $value -gt [uint64][long]::MaxValue) {
+                    throw "SQL parameter '$name' cannot exceed Int64::MaxValue."
+                }
+
                 $p=$command.Parameters.Add("@$name",[System.Data.SqlDbType]::BigInt)
                 $p.Value=[long]$value
                 continue

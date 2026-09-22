@@ -118,10 +118,11 @@ function Invoke-Poll {
             $deliveryErrorMessage = $_.Exception.Message
             if (Test-ToastDeliveryRetryableError -ErrorMessage $deliveryErrorMessage) {
                 $script:displayedToastOccurrences[$occurrenceKey] = [datetime]::UtcNow
+                Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $deliveryErrorMessage"
+                continue
             }
 
-            Write-Warning "Displayed toast message $($row.MessageId) but could not record delivery status after retry: $deliveryErrorMessage"
-            continue
+            throw
         }
 
         if ($script:displayedToastOccurrences.ContainsKey($occurrenceKey)) {
