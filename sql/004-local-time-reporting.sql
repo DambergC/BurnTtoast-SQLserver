@@ -1,9 +1,27 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
-DECLARE @DefaultLocalTimeZone sysname = NULL; -- Set to the SQL Server local Windows time zone name before running this script.
+DECLARE @DefaultLocalTimeZone sysname = NULL;
+BEGIN TRY
+    EXEC sp_executesql
+        N'SELECT @ResolvedTimeZone = CONVERT(sysname, CURRENT_TIMEZONE())',
+        N'@ResolvedTimeZone sysname OUTPUT',
+        @ResolvedTimeZone = @DefaultLocalTimeZone OUTPUT;
+END TRY
+BEGIN CATCH
+    SET @DefaultLocalTimeZone = NULL;
+END CATCH;
+
 IF @DefaultLocalTimeZone IS NULL
-    THROW 50014, 'Set @DefaultLocalTimeZone to the SQL Server local Windows time zone name before running local-time reporting setup.', 1;
+BEGIN
+    SELECT TOP (1) @DefaultLocalTimeZone = name
+    FROM sys.time_zone_info
+    WHERE current_utc_offset = DATENAME(TZOFFSET, SYSDATETIMEOFFSET())
+    ORDER BY name;
+END;
+
+IF @DefaultLocalTimeZone IS NULL
+    THROW 50014, 'Unable to resolve SQL Server local Windows time zone name before local-time reporting setup.', 1;
 DECLARE @EscapedDefaultLocalTimeZone nvarchar(256) = REPLACE(@DefaultLocalTimeZone, '''', '''''');
 
 DECLARE @Sql1 nvarchar(max) = N'
