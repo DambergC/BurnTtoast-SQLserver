@@ -694,6 +694,61 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'renders low-level scenario images and button actions when supported' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children, $AppLogoOverride, $HeroImage) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario, $Actions) }
+                function New-BTImage { param([string]$Source, [switch]$AppLogoOverride, [switch]$HeroImage) }
+                function New-BTButton { param([string]$Content, [string]$ActivationType, [string]$Arguments) }
+                function New-BTAction { param([object[]]$Buttons) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTImage { [pscustomobject]@{ Source = $Source; AppLogoOverride = $AppLogoOverride; HeroImage = $HeroImage } }
+                Mock New-BTButton { [pscustomobject]@{ Content = $Content; ActivationType = $ActivationType; Arguments = $Arguments } }
+                Mock New-BTAction { [pscustomobject]@{ Buttons = $Buttons } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children; AppLogoOverride = $AppLogoOverride; HeroImage = $HeroImage } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Actions = $Actions } }
+                Mock Submit-BTNotification {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                        AppLogoPath = 'C:\Toast\logo.png'
+                        HeroImagePath = 'C:\Toast\hero.png'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Button','Scenario')
+
+                    Should -Invoke New-BTImage -Times 1 -ParameterFilter { $Source -eq 'C:\Toast\logo.png' -and $AppLogoOverride }
+                    Should -Invoke New-BTImage -Times 1 -ParameterFilter { $Source -eq 'C:\Toast\hero.png' -and $HeroImage }
+                    Should -Invoke New-BTAction -Times 1
+                    Should -Invoke Submit-BTNotification -Times 1
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTImage -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAction -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'falls back and warns when BurntToast lacks persistent scenario support' {
             InModuleScope ToastSql {
                 function New-BurntToastNotification {

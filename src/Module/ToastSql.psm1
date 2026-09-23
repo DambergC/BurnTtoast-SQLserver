@@ -941,7 +941,7 @@ function Get-ToastNotificationSupportedParameters {
     )
 
     $command = Get-Command $CommandName -ErrorAction Stop
-    $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
+    $supportedParameters = @(@('Text','AppLogo','HeroImage','Sound','Urgent') | Where-Object { $command.Parameters.Keys -contains $_ })
     if ($command.Parameters.Keys -contains 'Scenario') {
         $supportedParameters += 'Scenario'
     } else {
