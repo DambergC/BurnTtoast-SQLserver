@@ -504,9 +504,9 @@ function Invoke-ToastNotificationWithScenario {
     )
 
     $warnings = [System.Collections.Generic.List[string]]::new()
-    $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction Stop
+    $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction SilentlyContinue
 
-    if ($newBurntToastCommand.Parameters.Keys -contains 'Scenario') {
+    if ($null -ne $newBurntToastCommand -and ($newBurntToastCommand.Parameters.Keys -contains 'Scenario')) {
         $toastWithScenario = @{} + $ToastParameters
         $toastWithScenario['Scenario'] = $Scenario
         $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastWithScenario -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
@@ -540,6 +540,10 @@ function Invoke-ToastNotificationWithScenario {
         -not ($newBtBindingCommand.Parameters.Keys -contains 'Children')
     ) {
         $warnings.Add("Installed BurntToast version does not support persistent toast scenario '$Scenario'. MessageId $MessageId will be shown as a default toast.")
+        if ($null -eq $newBurntToastCommand) {
+            throw "Installed BurntToast version cannot render scenario '$Scenario' because both New-BurntToastNotification and required low-level scenario commands are unavailable."
+        }
+
         $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
         foreach ($warning in $fallbackInvocationDetails.Warnings) {
             $warnings.Add($warning)
