@@ -557,7 +557,11 @@ function Invoke-ToastNotificationWithScenario {
         }
 
         $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
-        New-BurntToastNotification @fallbackInvocationParameters
+        try {
+            New-BurntToastNotification @fallbackInvocationParameters
+        } catch {
+            $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario'. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+        }
         return $warnings.ToArray()
     }
 

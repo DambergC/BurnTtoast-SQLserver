@@ -836,7 +836,7 @@ Describe 'ToastSql module' {
 
                     Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
 
-                    Should -Invoke New-BurntToastNotification -Times 1
+                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter { $Text.Count -eq 2 -and $Text[0] -eq 'Title' -and $Text[1] -eq 'Body' }
                     Should -Invoke Submit-BTNotification -Times 0
                     Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'does not support persistent toast scenario' }
                 } finally {
