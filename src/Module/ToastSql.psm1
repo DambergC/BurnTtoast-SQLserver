@@ -471,6 +471,30 @@ function ConvertTo-ToastSoundSourceUri {
     return $null
 }
 
+function Get-ToastBurntToastInvocationDetails {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$ToastParameters,
+        [Parameter(Mandatory)]$BurntToastCommand,
+        [AllowNull()][long]$MessageId
+    )
+
+    $parametersToInvoke = @{}
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    foreach ($parameterName in $ToastParameters.Keys) {
+        if ($BurntToastCommand.Parameters.Keys -contains $parameterName) {
+            $parametersToInvoke[$parameterName] = $ToastParameters[$parameterName]
+        } else {
+            $warnings.Add("Installed BurntToast does not support parameter '$parameterName'. MessageId $MessageId will be shown without this option.")
+        }
+    }
+
+    return [pscustomobject]@{
+        Parameters = $parametersToInvoke
+        Warnings = $warnings.ToArray()
+    }
+}
+
 function Invoke-ToastNotificationWithScenario {
     [CmdletBinding()]
     param(
@@ -485,7 +509,13 @@ function Invoke-ToastNotificationWithScenario {
     if ($newBurntToastCommand.Parameters.Keys -contains 'Scenario') {
         $toastWithScenario = @{} + $ToastParameters
         $toastWithScenario['Scenario'] = $Scenario
-        New-BurntToastNotification @toastWithScenario
+        $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastWithScenario -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+        foreach ($warning in $invocationDetails.Warnings) {
+            $warnings.Add($warning)
+        }
+
+        $scenarioInvocationParameters = $invocationDetails.Parameters
+        New-BurntToastNotification @scenarioInvocationParameters
         return $warnings.ToArray()
     }
 
@@ -506,7 +536,13 @@ function Invoke-ToastNotificationWithScenario {
         -not ($newBtBindingCommand.Parameters.Keys -contains 'Children')
     ) {
         $warnings.Add("Installed BurntToast version does not support persistent toast scenario '$Scenario'. MessageId $MessageId will be shown as a default toast.")
-        New-BurntToastNotification @ToastParameters
+        $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+        foreach ($warning in $fallbackInvocationDetails.Warnings) {
+            $warnings.Add($warning)
+        }
+
+        $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
+        New-BurntToastNotification @fallbackInvocationParameters
         return $warnings.ToArray()
     }
 
@@ -860,7 +896,14 @@ function Invoke-ToastNotification {
 
     try {
         if ($scenario -eq 'Default') {
-            New-BurntToastNotification @toastParameters
+            $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction Stop
+            $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastParameters -BurntToastCommand $newBurntToastCommand -MessageId $messageId
+            foreach ($warning in $invocationDetails.Warnings) {
+                Write-Warning $warning
+            }
+
+            $defaultScenarioInvocationParameters = $invocationDetails.Parameters
+            New-BurntToastNotification @defaultScenarioInvocationParameters
         } else {
             $scenarioWarnings = Invoke-ToastNotificationWithScenario -ToastParameters $toastParameters -Scenario $scenario -MessageId $messageId
             foreach ($warning in $scenarioWarnings) {

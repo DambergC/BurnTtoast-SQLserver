@@ -580,6 +580,10 @@ Describe 'ToastSql module' {
                 function New-BurntToastNotification {
                     param(
                         [string[]]$Text,
+                        [string]$AppLogo,
+                        [string]$HeroImage,
+                        [string]$Sound,
+                        [switch]$Urgent,
                         [string]$Scenario
                     )
                 }
@@ -587,6 +591,10 @@ Describe 'ToastSql module' {
                 Mock New-BurntToastNotification {
                     param(
                         [string[]]$Text,
+                        [string]$AppLogo,
+                        [string]$HeroImage,
+                        [string]$Sound,
+                        [switch]$Urgent,
                         [string]$Scenario
                     )
                 }
@@ -596,12 +604,22 @@ Describe 'ToastSql module' {
                         MessageId = 42
                         Title = 'Title'
                         Body = 'Body'
+                        AppLogoPath = 'C:\Toast\logo.png'
+                        HeroImagePath = 'C:\Toast\hero.png'
+                        Sound = 'Reminder'
+                        IsUrgent = $true
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
 
-                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter { $Scenario -eq 'Reminder' }
+                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter {
+                        $Scenario -eq 'Reminder' -and
+                        $AppLogo -eq 'C:\Toast\logo.png' -and
+                        $HeroImage -eq 'C:\Toast\hero.png' -and
+                        $Sound -eq 'Reminder' -and
+                        $Urgent
+                    }
                 } finally {
                     Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
                 }
