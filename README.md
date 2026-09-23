@@ -16,7 +16,7 @@ Toasten skickas alltså inte via SQL eller WinRM. SQL används som kö och statu
 - Windows PowerShell 5.1 eller PowerShell 7.
 - SQL Server med en standardinstans lyssnande på TCP 1433.
 - Klienterna får ansluta till SQL Server på TCP 1433.
-- Windows Integrated Security rekommenderas. SQL-login kan användas om `SqlCredential` tillförs säkert vid körning eller som en statisk `@{ UserName='...'; Password='...' }`-hashtable utanför versionshantering.
+- Windows Integrated Security rekommenderas. SQL-login kan användas om `SqlCredential` tillförs säkert vid körning eller som en statisk `@{ UserName='...'; Password='...' }`-hashtable utanför repo.
 - BurntToast installerat på klienterna, helst från intern PowerShell-repository i produktion.
 - Klientscriptet måste köras i användarens interaktiva session, inte som `SYSTEM`, för att toasten ska visas.
 
@@ -45,6 +45,132 @@ Toasten skickas alltså inte via SQL eller WinRM. SQL används som kö och statu
 
 För kontinuerlig polling används `-PollSeconds 30`. Ett exempel på schemalagd aktivitet finns i `deploy/Register-ToastClientTask.ps1`.
 
+## Projektöversikt och skriptparametrar
+
+Repositoryt består av fyra huvudsakliga byggblock:
+
+- `src/Server/Send-ToastMessage.ps1` – köar meddelanden till SQL Server för en grupp.
+- `src/Client/Start-ToastClient.ps1` – pollar SQL Server, visar toasten i användarens interaktiva session och rapporterar leveransstatus.
+- `src/Module/ToastSql.psm1` – modulerar SQL-anslutningar, config-import, validering och toast-rendering.
+- `config/config.example.psd1` – standardkonfiguration som kopieras till `config.psd1`.
+- `deploy/Register-ToastClientTask.ps1` – registrerar ett schemalagt logon-task för klienten.
+
+### Konfigurationsfilen `config/config.psd1`
+
+Exempelvärden i `config/config.example.psd1`:
+
+```powershell
+@{
+    SqlServer = 'SQLSERVER.example.test'
+    SqlDatabase = 'ToastNotifications'
+    SqlPort = 1433
+    UseIntegratedSecurity = $true
+    SqlCredential = $null
+    ClientName = $null
+    ClientGroups = @('IT-TEST')
+    InternalPowerShellRepository = $null
+    Encrypt = $true
+    TrustServerCertificate = $false
+    ConnectTimeoutSeconds = 15
+    CommandTimeoutSeconds = 15
+}
+```
+
+Viktiga parametrar:
+
+- `SqlServer` – namnet på SQL Server.
+- `SqlDatabase` – databasen där toast-kön och status-tabeller finns.
+- `SqlPort` – normalt `1433`.
+- `UseIntegratedSecurity` – använd Windows-integrerad autentisering när `$true`.
+- `SqlCredential` – valfritt PSCredential/hashtable vid manuell autentisering.
+- `ClientName` – om `$null` används datornamnet automatiskt.
+- `ClientGroups` – den eller de grupper som klienten prenumererar på.
+- `InternalPowerShellRepository` – intern PSGallery eller repository som används för att installera BurntToast i produktion.
+- `Encrypt`, `TrustServerCertificate`, `ConnectTimeoutSeconds`, `CommandTimeoutSeconds` – anslutningsinställningar för SQL Server.
+
+### `src/Client/Start-ToastClient.ps1`
+
+Syntax:
+
+```powershell
+.\src\Client\Start-ToastClient.ps1 -ConfigPath <string> [-Register] [-Once] [-PollSeconds <int>]
+```
+
+Parametrar:
+
+- `-ConfigPath` (obligatorisk) – sökväg till `config.psd1`.
+- `-Register` – registrerar klienten i `dbo.ToastClient` och lägger till gruppmedlemskap.
+- `-Once` – kör en enda pollcykel och avslutar sedan.
+- `-PollSeconds` – intervall mellan pollningar; standardvärdet är `30` sekunder.
+
+Klienten förutsätter att BurntToast redan finns installerat eller kan installeras från `InternalPowerShellRepository`. Den körs i användarens interaktivt session, eftersom det är där toasten visas.
+
+### `src/Server/Send-ToastMessage.ps1`
+
+Syntax:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath <string> `
+  -GroupName <string> `
+  -Title <string> `
+  -Body <string> `
+  [-ExpiresUtc <datetime>] `
+  [-AppLogoPath <string>] `
+  [-HeroImagePath <string>] `
+  [-AppLogoFilePath <string>] `
+  [-HeroImageFilePath <string>] `
+  [-AppLogoBytes <byte[]>] `
+  [-HeroImageBytes <byte[]>] `
+  [-AppLogoContentType <string>] `
+  [-HeroImageContentType <string>] `
+  [-Sound <string>] `
+  [-Urgent] `
+  [-RepeatIntervalSeconds <int>] `
+  [-RepeatIntervalMinutes <int>] `
+  [-RepeatCount <int>] `
+  [-ButtonText <string>] `
+  [-ButtonArguments <string>] `
+  [-ButtonActivationType <string>] `
+  [-Scenario <string>] `
+  [-DisplayMode <string>]
+```
+
+Viktiga parametrar:
+
+- `-ConfigPath`, `-GroupName`, `-Title`, `-Body` – obligatoriska.
+- `-ExpiresUtc` – valfritt utgångsdatum/tid för meddelandet.
+- `-AppLogoPath` / `-HeroImagePath` – lokala eller UNC-sökvägar som klientdatorn kan läsa.
+- `-AppLogoFilePath` / `-HeroImageFilePath` – bildfiler som laddas på servern och skickas som binär data i SQL.
+- `-AppLogoBytes` / `-HeroImageBytes` – direkt byte-array input om bild redan finns i minnet.
+- `-AppLogoContentType` / `-HeroImageContentType` – MIME-typ för binära bilder, exempel: `image/png`, `image/jpeg`.
+- `-Sound` – validerar mot BurntToast-ljud: `Default`, `IM`, `Mail`, `Reminder`, `SMS`, `Alarm`, `Alarm2`-`Alarm10`, `Call`, `Call2`-`Call10`.
+- `-Urgent` – flagga för prioriterad/markerad toast.
+- `-RepeatIntervalSeconds` / `-RepeatIntervalMinutes` – upprepning av toasten.
+- `-RepeatCount` – totalt antal visningar per klient inkl. första visningen.
+- `-ButtonText` – text på valfri knapp.
+- `-ButtonArguments` – URL/protokoll/argument för knappåtgärd.
+- `-ButtonActivationType` – `Protocol` eller `Dismiss`.
+- `-Scenario` – `Default`, `Reminder`, `Alarm`, `IncomingCall`.
+- `-DisplayMode` – `BurntToast` eller `Wpf`.
+
+### `deploy/Register-ToastClientTask.ps1`
+
+Detta script registrerar ett schemalagt task som kör klienten vid inloggning:
+
+```powershell
+.\deploy\Register-ToastClientTask.ps1 `
+  -TaskName 'BurntToast SQL Client' `
+  -ScriptPath 'C:\path\to\Start-ToastClient.ps1' `
+  -ConfigPath 'C:\path\to\config.psd1'
+```
+
+Parametrar:
+
+- `-TaskName` – namn på schemalagda uppgiften, standard: `BurntToast SQL Client`.
+- `-ScriptPath` – sökväg till klientscriptet.
+- `-ConfigPath` – sökväg till konfigurationsfilen.
+
 ## Anpassa toastens utseende
 
 Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar bara vidare de BurntToast-argument som faktiskt stöds lokalt:
@@ -67,18 +193,18 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
 - `AppLogoBytes`/`HeroImageBytes` kan användas för direkt byte-arrayinput om du redan har läst in bilden i PowerShell. Ange då även `AppLogoContentType`/`HeroImageContentType`.
 - Stödda content types för binära bilder är `image/png`, `image/jpeg`, `image/gif` och `image/bmp`. Aliaset `image/jpg` normaliseras till `image/jpeg`.
 - Maximal binär bildstorlek är **5 MB per bild** i både PowerShell och SQL-valideringen.
-- Binära bilder materialiseras till temporära filer på klienten och tas bort direkt efter att BurntToast har anropats. Klienter behöver därför inte längre läsa serverns bildsökväg när binära bilder används.
-- `AppLogoPath` och `HeroImagePath` måste vara sökvägar som **klientdatorn** kan läsa när toasten visas, till exempel en lokal fil eller UNC-sökväg. Server-lokala sökvägar fungerar bara om exakt samma sökväg finns och är åtkomlig på klienten.
+- Binära bilder materialiseras till temporära filer på klienten och tas bort direkt efter att BurntToast har anropats. Klienter behöver därför inte längre läsa serverns bildsökväg när bilden visas.
+- `AppLogoPath` och `HeroImagePath` måste vara sökvägar som **klientdatorn** kan läsa när toasten visas, till exempel en lokal fil eller UNC-sökväg. Server-lokala sökvägar fungerar bara om klienten också kan läsa samma filväg, vilket normalt inte är fallet.
 - `Sound` valideras mot BurntToast-värdena `Default`, `IM`, `Mail`, `Reminder`, `SMS`, `Alarm`, `Alarm2`-`Alarm10` och `Call`, `Call2`-`Call10`.
-- `Scenario` valideras mot `Default`, `Reminder`, `Alarm` och `IncomingCall`. `Reminder` används när toasten ska ligga kvar tills användaren agerar, förutsatt att installerad BurntToast-version stöder scenario-rendering.
+- `Scenario` valideras mot `Default`, `Reminder`, `Alarm` och `IncomingCall`. `Reminder` används när toasten ska ligga kvar tills användaren agerar, förutsatt att installerad BurntToast-version stödjer scenariot.
 - `DisplayMode` väljer visningstyp: `BurntToast` (standard, befintligt native-beteende) eller `Wpf` (egen kvittensruta som ligger kvar tills användaren bekräftar).
-- Repositoriet använder den dokumenterade BurntToast-parametern `-Urgent` för förhöjda/noterbara toastar. Om en installerad BurntToast-version saknar något optionalt argument visas toasten ändå med titel/brödtext och klienten loggar en tydlig varning.
+- Repositoriet använder den dokumenterade BurntToast-parametern `-Urgent` för förhöjda/noterbara toastar. Om en installerad BurntToast-version saknar något optionalt argument visas toasten ändå men utan det specifika argumentet.
 
 ### Välj visningsläge
 
 #### Native BurntToast (standard)
 
-`DisplayMode BurntToast` är standard för både gamla och nya meddelanden. Den här vägen bevarar nuvarande native-notis, Windows Notification Center, knappar, bilder, ljud, `Urgent` och scenario-hantering:
+`DisplayMode BurntToast` är standard för både gamla och nya meddelanden. Den här vägen bevarar nuvarande native-notis, Windows Notification Center, knappar, bilder, ljud, `Urgent` och scenariostöd.
 
 ```powershell
 .\src\Server\Send-ToastMessage.ps1 `
@@ -94,7 +220,7 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
 
 #### WPF-kvittensruta
 
-`DisplayMode Wpf` visar i stället en egen topmost-kvittensruta i användarens interaktiva session. Den är **inte** en OS-native Windows-toast och placeras därför inte i Notification Center, men den stannar kvar tills användaren kvitterar den via `Acknowledge`, den inbyggda `Close`-knappen eller en eventuell extra dismiss-knapp. Fönstret fokuserar `Acknowledge`-knappen så att `Enter` också fungerar som tangentbords-kvittens:
+`DisplayMode Wpf` visar i stället en egen topmost-kvittensruta i användarens interaktiva session. Den är **inte** en OS-native Windows-toast och placeras därför inte i Notification Center, men den kan ligga kvar tills användaren bekräftar den.
 
 ```powershell
 .\src\Server\Send-ToastMessage.ps1 `
@@ -119,10 +245,10 @@ Skillnader mellan lägena:
   - egen PowerShell/WPF-dialog, inte Notification Center
   - ingen timeout eller auto-close
   - leverans kvitteras först när användaren stänger dialogen via `Acknowledge`, den inbyggda `Close`-knappen, en dismiss-knapp eller en lyckad WPF-protokollknapp
-  - kan öppna samma protokoll/URL-knapp som native-läget, men WPF-knappen begränsas till säkra URI-scheman (`http`, `https`, `mailto`) och stänger dialogen först när start av protokoll/URL lyckas
+  - kan öppna samma protokoll/URL-knapp som native-läget, men WPF-knappen begränsas till säkra URI-scheman (`http`, `https`, `mailto`) och stänger dialogen först när start av protokoll/URL har lyckats
   - kräver att klientskriptet körs i en interaktiv **STA**-PowerShell-tråd/session för att WPF-fönstret ska kunna skapas
 
-Begränsning: `Scenario Reminder` och andra native Windows-scenarier kan fortfarande inte garantera absolut tvångskvittens. Använd `DisplayMode Wpf` när du behöver att meddelandet ligger kvar tills användaren aktivt bekräftar det.
+Begränsning: `Scenario Reminder` och andra native Windows-scenarier kan fortfarande inte garantera absolut tvångskvittens. Använd `DisplayMode Wpf` när du behöver att meddelandet ligger kvar tills användaren agerar.
 
 Exempel med binära bilder lagrade i SQL:
 
@@ -169,11 +295,11 @@ Ett meddelande är fortfarande engångsvisning per klient när repeat-parametrar
 
 Semantik för repeat:
 
-- `RepeatCount` är **totalt** antal schemalagda toast-tillfällen per klient, inklusive första försöket. `RepeatCount 3` betyder alltså första tillfället + två senare tillfällen. Misslyckade repeat-försök förbrukar också ett tillfälle.
+- `RepeatCount` är **totalt** antal schemalagda toast-tillfällen per klient, inklusive första försöket. `RepeatCount 3` betyder alltså första tillfället + två senare tillfällen. Misslyckade visningar kan återförsökas vid nästa repeat-intervall så länge meddelandet fortfarande är giltigt.
 - Ange antingen `-RepeatIntervalSeconds` eller `-RepeatIntervalMinutes` tillsammans med `-RepeatCount`.
 - Om nästa planerade visning skulle inträffa på eller efter `ExpiresUtc` stoppas återstående upprepningar för den klienten.
-- Om en klient misslyckas med att visa en repeat-toast sparas felmeddelandet och klienten försöker igen vid nästa repeat-intervall så länge det finns återstående visningar och meddelandet inte har gått ut.
-- Klienten leasar varje toast-occurrence innan den visas så att samtidiga poll-cykler inte visar samma occurrence mer än en gång. Om klienten kraschar efter visning men före kvittens kan samma occurrence visas igen när leasingen löper ut.
+- Om en klient misslyckas med att visa en repeat-toast sparas felmeddelandet och klienten försöker igen vid nästa repeat-intervall så länge det finns återstående visningar och meddelandet fortfarande är aktivt.
+- Klienten leasar varje toast-occurrence innan den visas så att samtidiga poll-cykler inte visar samma occurrence mer än en gång. Om klienten kraschar efter visning men före kvittens kan samma occurrence fortfarande återförsökas efter nästa pollcykel.
 
 ## Toast-knapp (valfri)
 
@@ -210,7 +336,7 @@ Dismiss-knapp:
 
 ## Lokal tidsrapportering
 
-Ny schemaläggning och procedurernas lease-/leveransstatus använder serverns lokala tid (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`).
+Ny schemaläggning och procedurernas lease-/leveransstatus använder serverns lokala tid (`CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc`, `LastSeenUtc`, etc.).
 Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och betyder inte längre att nya värden alltid är UTC.
 
 `sql/004-local-time-reporting.sql` skapar:
@@ -222,7 +348,7 @@ Obs: `Utc`-suffixen i kolumnnamnen är kvar av bakåtkompatibilitetsskäl och be
 Objekten behåller samma namn och konverterar inte längre från UTC till lokal tid; `*LocalTime`-kolumnerna presenterar lokalt lagrade tidsvärden som `datetimeoffset`.
 För tydlighet finns även alias-kolumner med `*ServerLocalTime` i vyer/funktioner.
 `sql/002-toast-design-repeat.sql` flyttar även befintliga UTC-rader i `CreatedUtc`, `ExpiresUtc`, `NextShowUtc`, `LeaseExpiresUtc`, `DeliveredUtc`, `LastAttemptUtc` och `LastSeenUtc` till serverns lokala tid vid uppgradering.
-`sql/002-toast-design-repeat.sql` och `sql/004-local-time-reporting.sql` försöker läsa SQL Servers lokala Windows-tidszon automatiskt (`CURRENT_TIMEZONE()`, med fallback till `sys.time_zone_info` via aktuell UTC-offset).
+`sql/002-toast-design-repeat.sql` och `sql/004-local-time-reporting.sql` försöker läsa SQL Servers lokala Windows-tidszon automatiskt (`CURRENT_TIMEZONE()`, med fallback till `sys.time_zone_info` när det behövs).
 
 Exempel på direktfråga:
 
@@ -240,7 +366,7 @@ FROM dbo.vw_ToastMessageLocal;
 - Använd parametriserade SQL-kommandon; ändra inte scriptet till strängkonkatenering.
 - BurntToast från PSGallery bör ersättas av en internt signerad eller speglad paketkälla i produktion.
 - Binära bilder lagras i databasen. Planera därför för ökat lagringsbehov, backupstorlek och eventuell rensning av gamla toast-rader om stora bilder används ofta.
-- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. `sql/003-toast-button.sql` innehåller nu även `Scenario`-, `DisplayMode`-kolumnerna och uppdaterad queue/pending-procedur. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till nya kolumner och procedurparametrar innan klient/script uppdateras. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera och `DisplayMode` defaultar till `BurntToast` för äldre rader.
+- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, `sql/003-toast-button.sql` och `sql/004-local-time-reporting.sql` i ordning.
 
 ## Felsökning
 
