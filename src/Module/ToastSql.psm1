@@ -14,6 +14,11 @@ $script:ToastSupportedDisplayModes = @('BurntToast','Wpf')
 $script:ToastSupportedWpfProtocolSchemes = @('http','https','mailto')
 $script:ToastSupportedScenarios = @('Default','Reminder','Alarm','IncomingCall')
 $script:ToastSqlNullParameterDefinitions = @{
+    GroupName = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 128 }
+    Title = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 200 }
+    Body = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 4000 }
+    AppLogoPath = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 1024 }
+    HeroImagePath = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 1024 }
     AppLogoBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
     HeroImageBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
     AppLogoContentType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 100 }
@@ -22,6 +27,8 @@ $script:ToastSqlNullParameterDefinitions = @{
     IsUrgent = @{ SqlDbType = [System.Data.SqlDbType]::Bit }
     RepeatIntervalSeconds = @{ SqlDbType = [System.Data.SqlDbType]::Int }
     RepeatCount = @{ SqlDbType = [System.Data.SqlDbType]::Int }
+    ButtonText = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 200 }
+    ButtonArguments = @{ SqlDbType = [System.Data.SqlDbType]::NVarChar; Size = 2048 }
     MessageId = @{ SqlDbType = [System.Data.SqlDbType]::BigInt }
     LeaseId = @{ SqlDbType = [System.Data.SqlDbType]::UniqueIdentifier }
     ExpiresUtc = @{ SqlDbType = [System.Data.SqlDbType]::DateTime2 }
@@ -1386,4 +1393,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastScenario,Resolve-ToastDisplayMode,Get-ToastNotificationSupportedParameters,Invoke-ToastNotification,Show-ToastAcknowledgementWindow
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastScenario,Resolve-ToastDisplayMode,Resolve-ToastImageInput,Get-ToastNotificationSupportedParameters,Invoke-ToastNotification,Show-ToastAcknowledgementWindow

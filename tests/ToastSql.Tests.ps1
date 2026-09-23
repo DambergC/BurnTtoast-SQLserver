@@ -2,6 +2,10 @@ $modulePath = Join-Path $PSScriptRoot '..\src\Module\ToastSql.psm1'
 Import-Module $modulePath -Force
 
 Describe 'ToastSql module' {
+    It 'exports Resolve-ToastImageInput for server scripts' {
+        (Get-Command -Name 'Resolve-ToastImageInput' -Module ToastSql -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+    }
+
     It 'builds a valid SQL connection string for integrated security' {
         $config = @{
             SqlServer = 'sql01'
@@ -258,6 +262,15 @@ Describe 'ToastSql module' {
     }
 
     Context 'image input resolution' {
+        It 'returns null image values when image input is omitted' {
+            InModuleScope ToastSql {
+                $result = Resolve-ToastImageInput -ParameterName 'AppLogo'
+
+                $result.ImageBytes | Should -Be $null
+                $result.ContentType | Should -Be $null
+            }
+        }
+
         It 'reads image bytes from a file path and infers the content type' {
             InModuleScope ToastSql {
                 $filePath = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-test-$([guid]::NewGuid().ToString('N')).png"
@@ -273,6 +286,16 @@ Describe 'ToastSql module' {
                 } finally {
                     Remove-Item -LiteralPath $filePath -Force -ErrorAction SilentlyContinue
                 }
+            }
+        }
+
+        It 'accepts direct image bytes when content type is supplied' {
+            InModuleScope ToastSql {
+                $imageBytes = [byte[]](1,2,3)
+                $result = Resolve-ToastImageInput -ImageBytes $imageBytes -ContentType 'image/png' -ParameterName 'HeroImage'
+
+                $result.ContentType | Should -Be 'image/png'
+                ($result.ImageBytes -join ',') | Should -Be '1,2,3'
             }
         }
 
@@ -597,17 +620,21 @@ Describe 'ToastSql module' {
         It 'preserves known SQL types when null values are bound' {
             $result = InModuleScope ToastSql {
                 $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
+                Add-ToastSqlParameter -Command $moduleCmd -Name 'GroupName' -Value $null
                 Add-ToastSqlParameter -Command $moduleCmd -Name 'AppLogoBytes' -Value $null
                 Add-ToastSqlParameter -Command $moduleCmd -Name 'ExpiresUtc' -Value $null
                 Add-ToastSqlParameter -Command $moduleCmd -Name 'RepeatCount' -Value $null
 
                 [pscustomobject]@{
+                    GroupName = $moduleCmd.Parameters['@GroupName']
                     AppLogoBytes = $moduleCmd.Parameters['@AppLogoBytes']
                     ExpiresUtc = $moduleCmd.Parameters['@ExpiresUtc']
                     RepeatCount = $moduleCmd.Parameters['@RepeatCount']
                 }
             }
 
+            $result.GroupName.SqlDbType | Should -Be ([System.Data.SqlDbType]::NVarChar)
+            $result.GroupName.Size | Should -Be 128
             $result.AppLogoBytes.SqlDbType | Should -Be ([System.Data.SqlDbType]::VarBinary)
             $result.AppLogoBytes.Size | Should -Be -1
             $result.ExpiresUtc.SqlDbType | Should -Be ([System.Data.SqlDbType]::DateTime2)
