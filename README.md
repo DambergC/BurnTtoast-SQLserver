@@ -1,4 +1,4 @@
-# BurnTtoast-SQLserver
+# BurntToast-SQLserver
 
 Gruppbaserade Windows-notiser med [BurntToast](https://github.com/Windos/BurntToast), PowerShell och Microsoft SQL Server.
 
