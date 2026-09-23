@@ -729,6 +729,71 @@ Describe 'ToastSql module' {
                 }
             }
         }
+
+        It 'warns but still submits when low-level scenario rendering lacks sound support' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                function New-BTText {
+                    param([string]$Text)
+                }
+
+                function New-BTBinding {
+                    param([object[]]$Children)
+                }
+
+                function New-BTVisual {
+                    param($BindingGeneric)
+                }
+
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+
+                function Submit-BTNotification {
+                    param($Content)
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'Reminder'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'without custom sound' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'local-time reporting SQL compatibility' {

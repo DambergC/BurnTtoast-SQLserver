@@ -536,8 +536,10 @@ function Invoke-ToastNotificationWithScenario {
     }
 
     $newBtImageCommand = Get-Command 'New-BTImage' -ErrorAction SilentlyContinue
+    $canBuildAppLogoImage = $null -ne $newBtImageCommand -and ($newBtImageCommand.Parameters.Keys -contains 'Source') -and ($newBtImageCommand.Parameters.Keys -contains 'AppLogoOverride')
+    $canBuildHeroImage = $null -ne $newBtImageCommand -and ($newBtImageCommand.Parameters.Keys -contains 'Source') -and ($newBtImageCommand.Parameters.Keys -contains 'HeroImage')
     if ($ToastParameters.ContainsKey('AppLogo') -and -not [string]::IsNullOrWhiteSpace([string]$ToastParameters['AppLogo'])) {
-        if ($null -ne $newBtImageCommand -and $newBtBindingCommand.Parameters.Keys -contains 'AppLogoOverride') {
+        if ($canBuildAppLogoImage -and $newBtBindingCommand.Parameters.Keys -contains 'AppLogoOverride') {
             $bindingParameters['AppLogoOverride'] = New-BTImage -Source ([string]$ToastParameters['AppLogo']) -AppLogoOverride
         } else {
             $warnings.Add("Installed BurntToast version does not support app-logo rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without app-logo image.")
@@ -545,7 +547,7 @@ function Invoke-ToastNotificationWithScenario {
     }
 
     if ($ToastParameters.ContainsKey('HeroImage') -and -not [string]::IsNullOrWhiteSpace([string]$ToastParameters['HeroImage'])) {
-        if ($null -ne $newBtImageCommand -and $newBtBindingCommand.Parameters.Keys -contains 'HeroImage') {
+        if ($canBuildHeroImage -and $newBtBindingCommand.Parameters.Keys -contains 'HeroImage') {
             $bindingParameters['HeroImage'] = New-BTImage -Source ([string]$ToastParameters['HeroImage']) -HeroImage
         } else {
             $warnings.Add("Installed BurntToast version does not support hero-image rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without hero image.")
