@@ -1,6 +1,8 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+
 DECLARE @ServerLocalTimeZone sysname = NULL;
+
 BEGIN TRY
     EXEC sp_executesql
         N'SELECT @ResolvedTimeZone = CONVERT(sysname, CURRENT_TIMEZONE())',
@@ -11,12 +13,38 @@ BEGIN CATCH
     SET @ServerLocalTimeZone = NULL;
 END CATCH;
 
+-- CURRENT_TIMEZONE() kan returnera ett lokalt visningsnamn, t.ex.
+-- "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna".
+-- AT TIME ZONE kräver däremot ett giltigt SQL Server tidszonsnamn.
+IF @ServerLocalTimeZone IS NOT NULL
+BEGIN
+    IF NOT EXISTS
+    (
+        SELECT 1
+        FROM sys.time_zone_info
+        WHERE name = @ServerLocalTimeZone
+    )
+    BEGIN
+        SET @ServerLocalTimeZone = NULL;
+    END;
+END;
+
+-- Fallback: matcha giltig zon via aktuell UTC-offset och DST-status.
 IF @ServerLocalTimeZone IS NULL
 BEGIN
-    SELECT TOP (1) @ServerLocalTimeZone = name
+    SELECT TOP (1)
+        @ServerLocalTimeZone = name
     FROM sys.time_zone_info
     WHERE current_utc_offset = DATENAME(TZOFFSET, SYSDATETIMEOFFSET())
-    ORDER BY name;
+    ORDER BY
+        CASE WHEN is_currently_dst = 1 THEN 0 ELSE 1 END,
+        name;
+END;
+
+-- Sista fallback om ingen zon kan bestämmas.
+IF @ServerLocalTimeZone IS NULL
+BEGIN
+    SET @ServerLocalTimeZone = N'UTC';
 END;
 
 IF COL_LENGTH('dbo.ToastMessage', 'AppLogoPath') IS NULL
@@ -58,10 +86,13 @@ BEGIN
 
         DECLARE @NextShowUtcDefaultConstraintName sysname;
         DECLARE @NextShowUtcDefaultDefinition nvarchar(max);
-        SELECT @NextShowUtcDefaultConstraintName = dc.name
-             , @NextShowUtcDefaultDefinition = dc.definition
+
+        SELECT
+            @NextShowUtcDefaultConstraintName = dc.name,
+            @NextShowUtcDefaultDefinition = dc.definition
         FROM sys.default_constraints dc
-        INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+        INNER JOIN sys.columns c
+            ON c.default_object_id = dc.object_id
         WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
           AND c.name = 'NextShowUtc';
 
@@ -71,7 +102,8 @@ BEGIN
                 THROW 50013, 'Unable to resolve SQL Server local Windows time zone name for UTC-to-local timestamp migration.', 1;
 
             UPDATE dbo.ToastDelivery
-            SET NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+            SET
+                NextShowUtc = CAST(((NextShowUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
                 LeaseExpiresUtc = CASE
                     WHEN LeaseExpiresUtc IS NULL THEN NULL
                     ELSE CAST(((LeaseExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
@@ -80,7 +112,8 @@ BEGIN
                OR LeaseExpiresUtc IS NOT NULL;
 
             UPDATE dbo.ToastDelivery
-            SET LastAttemptUtc = CASE
+            SET
+                LastAttemptUtc = CASE
                     WHEN LastAttemptUtc IS NULL THEN NULL
                     ELSE CAST(((LastAttemptUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
                 END,
@@ -96,7 +129,8 @@ BEGIN
             WHERE LastSeenUtc IS NOT NULL;
 
             UPDATE dbo.ToastMessage
-            SET CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
+            SET
+                CreatedUtc = CAST(((CreatedUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0)),
                 ExpiresUtc = CASE
                     WHEN ExpiresUtc IS NULL THEN NULL
                     ELSE CAST(((ExpiresUtc AT TIME ZONE 'UTC') AT TIME ZONE @ServerLocalTimeZone) AS datetime2(0))
@@ -112,13 +146,16 @@ BEGIN
                 N'ALTER TABLE dbo.ToastDelivery DROP CONSTRAINT '
                 + QUOTENAME(@NextShowUtcDefaultConstraintName)
                 + N';';
+
             EXEC sp_executesql @DropNextShowUtcDefaultConstraintSql;
         END;
 
-        IF NOT EXISTS (
+        IF NOT EXISTS
+        (
             SELECT 1
             FROM sys.default_constraints dc
-            INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+            INNER JOIN sys.columns c
+                ON c.default_object_id = dc.object_id
             WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastDelivery')
               AND c.name = 'NextShowUtc'
         )
@@ -130,6 +167,7 @@ BEGIN
     BEGIN CATCH
         IF @@TRANCOUNT > 0
             ROLLBACK;
+
         THROW;
     END CATCH
 END;
@@ -161,6 +199,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastM
         INCLUDE (IsCancelled, ExpiresUtc, Title, Body, AppLogoPath, HeroImagePath, Sound, IsUrgent, RepeatIntervalSeconds, RepeatCount);
 
 GO
+
 CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @GroupName nvarchar(128),
     @Title nvarchar(200),
@@ -382,7 +421,7 @@ BEGIN
 
             IF @ExpiresUtc IS NOT NULL AND @NextShowUtc >= @ExpiresUtc
                 SET @NextShowUtc = NULL;
-        END
+        END;
 
         UPDATE dbo.ToastDelivery
         SET Status = CASE WHEN @NextShowUtc IS NULL THEN 'Delivered' ELSE 'Pending' END,
@@ -401,7 +440,7 @@ BEGIN
         IF @@ROWCOUNT = 0 THROW 50006, 'Toast delivery lease was not found or is no longer active for this client.', 1;
 
         RETURN;
-    END
+    END;
 
     SET @FailureStatus = @Status;
     SET @FailureNextShowUtc = @Now;
@@ -419,8 +458,8 @@ BEGIN
                 SET @FailureStatus = 'Pending';
             ELSE
                 SET @FailureNextShowUtc = @Now;
-        END
-    END
+        END;
+    END;
 
     UPDATE dbo.ToastDelivery
     SET Status = @FailureStatus,
@@ -438,3 +477,4 @@ BEGIN
 
     IF @@ROWCOUNT = 0 THROW 50006, 'Toast delivery lease was not found or is no longer active for this client.', 1;
 END;
+GO
