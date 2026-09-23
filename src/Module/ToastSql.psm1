@@ -154,8 +154,8 @@ function Clear-StaleToastTemporaryFiles {
     $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$script:ToastTemporaryFileRetentionMinutes)
     $supportedExtensions = @($script:ToastSupportedImageContentTypes.Values)
 
-    $candidateFiles = [System.IO.Directory]::GetFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*")
-    foreach ($filePath in $candidateFiles) {
+    $staleFiles = [System.Collections.Generic.List[string]]::new()
+    foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*")) {
         try {
             $fileInfo = [System.IO.FileInfo]::new($filePath)
             $processIdSegment = $fileInfo.BaseName.Substring($script:ToastTemporaryFilePrefix.Length).Split('-')[0]
@@ -164,8 +164,16 @@ function Clear-StaleToastTemporaryFiles {
             $ownerProcessIsRunning = $hasOwnerProcessId -and $null -ne (Get-Process -Id $ownerProcessId -ErrorAction SilentlyContinue)
 
             if (($supportedExtensions -contains $fileInfo.Extension.ToLowerInvariant()) -and $fileInfo.LastWriteTimeUtc -lt $cutoffUtc -and -not $ownerProcessIsRunning) {
-                Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
+                $staleFiles.Add($filePath)
             }
+        } catch {
+            continue
+        }
+    }
+
+    foreach ($staleFilePath in $staleFiles) {
+        try {
+            Remove-Item -LiteralPath $staleFilePath -Force -ErrorAction Stop
         } catch {
             continue
         }
