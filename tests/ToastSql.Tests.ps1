@@ -138,6 +138,12 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'normalizes scenario values case-insensitively' {
+            InModuleScope ToastSql {
+                Resolve-ToastScenario -Scenario 'reminder' | Should -Be 'Reminder'
+            }
+        }
+
         It 'rejects unsupported scenario values' {
             InModuleScope ToastSql {
                 { Resolve-ToastScenario -Scenario 'Persistent' } | Should -Throw '*Scenario must be one of*'

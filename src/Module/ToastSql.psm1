@@ -435,11 +435,12 @@ function Resolve-ToastScenario {
     )
 
     $normalizedScenario = if ([string]::IsNullOrWhiteSpace($Scenario)) { 'Default' } else { $Scenario.Trim() }
-    if ($script:ToastSupportedScenarios -notcontains $normalizedScenario) {
+    $resolvedScenario = $script:ToastSupportedScenarios | Where-Object { $_.Equals($normalizedScenario, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+    if ($null -eq $resolvedScenario) {
         throw "Scenario must be one of: $($script:ToastSupportedScenarios -join ', ')."
     }
 
-    return $normalizedScenario
+    return $resolvedScenario
 }
 
 function ConvertTo-ToastSoundSourceUri {
@@ -449,23 +450,16 @@ function ConvertTo-ToastSoundSourceUri {
     )
 
     $normalizedSound = $Sound.Trim()
-    switch ($normalizedSound) {
-        'Default' { return 'ms-winsoundevent:Notification.Default' }
-        'IM' { return 'ms-winsoundevent:Notification.IM' }
-        'Mail' { return 'ms-winsoundevent:Notification.Mail' }
-        'Reminder' { return 'ms-winsoundevent:Notification.Reminder' }
-        'SMS' { return 'ms-winsoundevent:Notification.SMS' }
-        'Alarm' { return 'ms-winsoundevent:Notification.Looping.Alarm' }
-        'Call' { return 'ms-winsoundevent:Notification.Looping.Call' }
-        default {
-            if ($normalizedSound -match '^Alarm([2-9]|10)$') {
-                return "ms-winsoundevent:Notification.Looping.$normalizedSound"
-            }
-
-            if ($normalizedSound -match '^Call([2-9]|10)$') {
-                return "ms-winsoundevent:Notification.Looping.$normalizedSound"
-            }
-        }
+    switch -Regex ($normalizedSound) {
+        '^(?i)Default$' { return 'ms-winsoundevent:Notification.Default' }
+        '^(?i)IM$' { return 'ms-winsoundevent:Notification.IM' }
+        '^(?i)Mail$' { return 'ms-winsoundevent:Notification.Mail' }
+        '^(?i)Reminder$' { return 'ms-winsoundevent:Notification.Reminder' }
+        '^(?i)SMS$' { return 'ms-winsoundevent:Notification.SMS' }
+        '^(?i)Alarm$' { return 'ms-winsoundevent:Notification.Looping.Alarm' }
+        '^(?i)Call$' { return 'ms-winsoundevent:Notification.Looping.Call' }
+        '^(?i)Alarm([2-9]|10)$' { return "ms-winsoundevent:Notification.Looping.Alarm$($Matches[1])" }
+        '^(?i)Call([2-9]|10)$' { return "ms-winsoundevent:Notification.Looping.Call$($Matches[1])" }
     }
 
     return $null
@@ -625,7 +619,7 @@ function Invoke-ToastNotificationWithScenario {
             ($newBtContentCommand.Parameters.Keys -contains 'Audio')
         ) {
             $soundName = [string]$ToastParameters['Sound']
-            if ($soundName -eq 'Silent') {
+            if ($soundName.Equals('Silent', [System.StringComparison]::OrdinalIgnoreCase)) {
                 if ($newBtAudioCommand.Parameters.Keys -contains 'Silent') {
                     $contentParameters['Audio'] = New-BTAudio -Silent
                 } else {
@@ -962,46 +956,7 @@ function Get-ToastNotificationSupportedParameters {
     $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
     $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
     $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
-    $newBtImageCommand = Get-Command 'New-BTImage' -ErrorAction SilentlyContinue
-    $newBtActionCommand = Get-Command 'New-BTAction' -ErrorAction SilentlyContinue
-    $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
     $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
-
-    if ($null -ne $newBtImageCommand -and $null -ne $newBtBindingCommand) {
-        if ($newBtBindingCommand.Parameters.Keys -contains 'AppLogoOverride') {
-            $supportedParameters += 'AppLogo'
-        }
-
-        if ($newBtBindingCommand.Parameters.Keys -contains 'HeroImage') {
-            $supportedParameters += 'HeroImage'
-        }
-    }
-
-    if (
-        $hasButtonCommand -and
-        $null -ne $newBtActionCommand -and
-        $null -ne $newBtContentCommand -and
-        ($newBtActionCommand.Parameters.Keys -contains 'Buttons') -and
-        ($newBtContentCommand.Parameters.Keys -contains 'Actions')
-    ) {
-        $supportedParameters += 'Button'
-    }
-
-    if (
-        $null -ne $newBtAudioCommand -and
-        $null -ne $newBtContentCommand -and
-        (
-            ($newBtAudioCommand.Parameters.Keys -contains 'Source') -or
-            ($newBtAudioCommand.Parameters.Keys -contains 'Silent')
-        ) -and
-        ($newBtContentCommand.Parameters.Keys -contains 'Audio')
-    ) {
-        $supportedParameters += 'Sound'
-    }
-
-    if ($null -ne $submitBtNotificationCommand -and ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent')) {
-        $supportedParameters += 'Urgent'
-    }
 
     if (-not ($command.Parameters.Keys -contains 'Scenario')) {
         if (
