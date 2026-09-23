@@ -739,29 +739,23 @@ function Show-ToastAcknowledgementWindow {
                 $window.Close()
             })
         } else {
-            $resolvedProtocolUri = Resolve-ToastWpfProtocolUri -ButtonArguments $ButtonArguments
-            if ($null -eq $resolvedProtocolUri) {
-                $actionButton = $null
-                Write-Warning "WPF protocol buttons only support these URI schemes: $($script:ToastSupportedWpfProtocolSchemes -join ', '). MessageId $MessageId will be shown without the optional action button."
-            } else {
-                $protocolTarget = $resolvedProtocolUri.AbsoluteUri
-                $actionButton.Add_Click({
-                    $protocolActionError = Invoke-ToastWpfProtocolAction -ButtonArguments $protocolTarget
-                    if (-not [string]::IsNullOrWhiteSpace($protocolActionError)) {
-                        [void][System.Windows.MessageBox]::Show(
-                            $window,
-                            "Failed to open '$protocolTarget'.`n`n$protocolActionError",
-                            'Notification action failed',
-                            [System.Windows.MessageBoxButton]::OK,
-                            [System.Windows.MessageBoxImage]::Warning
-                        )
-                        $window.Activate() | Out-Null
-                    } else {
-                        $windowState['Acknowledged'] = $true
-                        $window.Close()
-                    }
-                })
-            }
+            $protocolTarget = $ButtonArguments
+            $actionButton.Add_Click({
+                $protocolActionError = Invoke-ToastWpfProtocolAction -ButtonArguments $protocolTarget
+                if (-not [string]::IsNullOrWhiteSpace($protocolActionError)) {
+                    [void][System.Windows.MessageBox]::Show(
+                        $window,
+                        "Failed to open '$protocolTarget'.`n`n$protocolActionError",
+                        'Notification action failed',
+                        [System.Windows.MessageBoxButton]::OK,
+                        [System.Windows.MessageBoxImage]::Warning
+                    )
+                    $window.Activate() | Out-Null
+                } else {
+                    $windowState['Acknowledged'] = $true
+                    $window.Close()
+                }
+            })
         }
 
         if ($null -ne $actionButton) {
@@ -816,7 +810,7 @@ function Show-ToastAcknowledgementWindow {
         [Microsoft.Win32.SystemEvents]::add_SessionEnding($sessionEndingHandler)
         $sessionEndingRegistered = $true
     } catch {
-        Write-Warning "Failed to subscribe to SessionEnding for WPF acknowledgement mode. MessageId $messageId may rely on in-window acknowledgement handling only. Details: $($_.Exception.Message)"
+        Write-Warning "Failed to subscribe to SessionEnding for WPF acknowledgement mode. MessageId $MessageId may rely on in-window acknowledgement handling only. Details: $($_.Exception.Message)"
     }
 
     try {
