@@ -609,69 +609,87 @@ function Invoke-ToastNotificationWithScenario {
         }
     }
 
-    $binding = New-BTBinding @bindingParameters
-    $visual = New-BTVisual -BindingGeneric $binding
-    $contentParameters = @{
-        Visual = $visual
-        Scenario = $Scenario
-    }
-
-    if ($ToastParameters.ContainsKey('Button')) {
-        $newBtActionCommand = Get-Command 'New-BTAction' -ErrorAction SilentlyContinue
-        if (
-            $null -ne $newBtActionCommand -and
-            ($newBtActionCommand.Parameters.Keys -contains 'Buttons') -and
-            ($newBtContentCommand.Parameters.Keys -contains 'Actions')
-        ) {
-            $contentParameters['Actions'] = New-BTAction -Buttons @($ToastParameters['Button'])
-        } else {
-            $warnings.Add("Installed BurntToast version does not support button actions for persistent scenario '$Scenario'. MessageId $MessageId will be shown without buttons.")
+    try {
+        $binding = New-BTBinding @bindingParameters
+        $visual = New-BTVisual -BindingGeneric $binding
+        $contentParameters = @{
+            Visual = $visual
+            Scenario = $Scenario
         }
-    }
 
-    if ($ToastParameters.ContainsKey('Sound')) {
-        $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
-        if (
-            $null -ne $newBtAudioCommand -and
-            ($newBtContentCommand.Parameters.Keys -contains 'Audio')
-        ) {
-            $soundName = [string]$ToastParameters['Sound']
-            if ($soundName.Equals('Silent', [System.StringComparison]::OrdinalIgnoreCase)) {
-                if ($newBtAudioCommand.Parameters.Keys -contains 'Silent') {
-                    $contentParameters['Audio'] = New-BTAudio -Silent
-                } else {
-                    $warnings.Add("Installed BurntToast version does not support silent audio rendering for persistent scenario '$Scenario'. MessageId $MessageId will use default sound behavior.")
-                }
+        if ($ToastParameters.ContainsKey('Button')) {
+            $newBtActionCommand = Get-Command 'New-BTAction' -ErrorAction SilentlyContinue
+            if (
+                $null -ne $newBtActionCommand -and
+                ($newBtActionCommand.Parameters.Keys -contains 'Buttons') -and
+                ($newBtContentCommand.Parameters.Keys -contains 'Actions')
+            ) {
+                $contentParameters['Actions'] = New-BTAction -Buttons @($ToastParameters['Button'])
             } else {
-                if ($newBtAudioCommand.Parameters.Keys -contains 'Source') {
-                    $soundSource = ConvertTo-ToastSoundSourceUri -Sound $soundName
-                    if ([string]::IsNullOrWhiteSpace($soundSource)) {
-                        $warnings.Add("Unsupported sound value '$($ToastParameters['Sound'])' for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                $warnings.Add("Installed BurntToast version does not support button actions for persistent scenario '$Scenario'. MessageId $MessageId will be shown without buttons.")
+            }
+        }
+
+        if ($ToastParameters.ContainsKey('Sound')) {
+            $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
+            if (
+                $null -ne $newBtAudioCommand -and
+                ($newBtContentCommand.Parameters.Keys -contains 'Audio')
+            ) {
+                $soundName = [string]$ToastParameters['Sound']
+                if ($soundName.Equals('Silent', [System.StringComparison]::OrdinalIgnoreCase)) {
+                    if ($newBtAudioCommand.Parameters.Keys -contains 'Silent') {
+                        $contentParameters['Audio'] = New-BTAudio -Silent
                     } else {
-                        $contentParameters['Audio'] = New-BTAudio -Source $soundSource
+                        $warnings.Add("Installed BurntToast version does not support silent audio rendering for persistent scenario '$Scenario'. MessageId $MessageId will use default sound behavior.")
                     }
                 } else {
-                    $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                    if ($newBtAudioCommand.Parameters.Keys -contains 'Source') {
+                        $soundSource = ConvertTo-ToastSoundSourceUri -Sound $soundName
+                        if ([string]::IsNullOrWhiteSpace($soundSource)) {
+                            $warnings.Add("Unsupported sound value '$($ToastParameters['Sound'])' for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                        } else {
+                            $contentParameters['Audio'] = New-BTAudio -Source $soundSource
+                        }
+                    } else {
+                        $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                    }
                 }
+            } else {
+                $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
             }
-        } else {
-            $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+        }
+
+        $content = New-BTContent @contentParameters
+        $submitParameters = @{}
+        $submitParameters[$submitContentParameterName] = $content
+
+        if ($ToastParameters.ContainsKey('Urgent') -and [System.Convert]::ToBoolean($ToastParameters['Urgent'])) {
+            if ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent') {
+                $submitParameters['Urgent'] = $true
+            } else {
+                $warnings.Add("Installed BurntToast version does not support urgent delivery for persistent scenario '$Scenario'. MessageId $MessageId will be shown without urgent delivery.")
+            }
+        }
+
+        Submit-BTNotification @submitParameters
+    } catch {
+        $warnings.Add("Installed BurntToast low-level scenario rendering failed for scenario '$Scenario'. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+        if ($null -ne $newBurntToastCommand) {
+            $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+            foreach ($warning in $fallbackInvocationDetails.Warnings) {
+                $warnings.Add($warning)
+            }
+
+            $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
+            try {
+                New-BurntToastNotification @fallbackInvocationParameters
+            } catch {
+                $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario' after low-level failure. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+            }
         }
     }
 
-    $content = New-BTContent @contentParameters
-    $submitParameters = @{}
-    $submitParameters[$submitContentParameterName] = $content
-
-    if ($ToastParameters.ContainsKey('Urgent') -and [System.Convert]::ToBoolean($ToastParameters['Urgent'])) {
-        if ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent') {
-            $submitParameters['Urgent'] = $true
-        } else {
-            $warnings.Add("Installed BurntToast version does not support urgent delivery for persistent scenario '$Scenario'. MessageId $MessageId will be shown without urgent delivery.")
-        }
-    }
-
-    Submit-BTNotification @submitParameters
     return $warnings.ToArray()
 }
 

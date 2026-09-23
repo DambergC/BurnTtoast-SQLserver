@@ -722,7 +722,50 @@ Describe 'ToastSql module' {
                     Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
 
                     Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Scenario -eq 'Reminder' }
                     Should -Invoke Submit-BTNotification -Times 1 -ParameterFilter { $null -ne $Toast }
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'supports low-level scenario rendering when New-BTText uses Content parameter' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Content) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Content = $Content } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke New-BTText -Times 2 -ParameterFilter { $Content -in @('Title','Body') }
+                    Should -Invoke Submit-BTNotification -Times 1
                     Should -Invoke Write-Warning -Times 0
                 } finally {
                     Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
