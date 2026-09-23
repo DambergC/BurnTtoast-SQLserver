@@ -604,6 +604,7 @@ Describe 'ToastSql module' {
             $scriptText | Should -Match "UPDATE dbo\.ToastClient"
             $scriptText | Should -Match "AT TIME ZONE 'UTC'\) AT TIME ZONE @ServerLocalTimeZone"
             $scriptText | Should -Match "DECLARE @DropNextShowUtcDefaultConstraintSql nvarchar\(max\)"
+            $scriptText | Should -Match "SET @DropNextShowUtcDefaultConstraintSql =\s*N'ALTER TABLE dbo\.ToastDelivery DROP CONSTRAINT '\s*\+\s*QUOTENAME\(@NextShowUtcDefaultConstraintName\)\s*\+\s*N';'"
             $scriptText | Should -Match "EXEC sp_executesql @DropNextShowUtcDefaultConstraintSql"
         }
     }
