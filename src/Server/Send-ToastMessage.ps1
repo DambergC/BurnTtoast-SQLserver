@@ -88,6 +88,24 @@ function Resolve-ToastQueueResult {
     }
 }
 
+function Assert-ToastImageResolutionResult {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Result,
+        [Parameter(Mandatory)][string]$ParameterName
+    )
+
+    if ($null -eq $Result) {
+        throw "$ParameterName image resolution returned no value."
+    }
+
+    $hasImageBytes = $null -ne $Result.PSObject.Properties['ImageBytes']
+    $hasContentType = $null -ne $Result.PSObject.Properties['ContentType']
+    if (-not $hasImageBytes -or -not $hasContentType) {
+        throw "$ParameterName image resolution must return ImageBytes and ContentType values."
+    }
+}
+
 $config = Import-ToastConfig -Path $ConfigPath -RequiredProperties @(
     'SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','Encrypt',
     'TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds'
@@ -127,12 +145,14 @@ $resolvedAppLogo = Resolve-ToastImageInput `
     -ImageBytes $AppLogoBytes `
     -ContentType $AppLogoContentType `
     -ParameterName 'AppLogo'
+Assert-ToastImageResolutionResult -Result $resolvedAppLogo -ParameterName 'AppLogo'
 
 $resolvedHeroImage = Resolve-ToastImageInput `
     -FilePath $HeroImageFilePath `
     -ImageBytes $HeroImageBytes `
     -ContentType $HeroImageContentType `
     -ParameterName 'HeroImage'
+Assert-ToastImageResolutionResult -Result $resolvedHeroImage -ParameterName 'HeroImage'
 
 $params = @{
     GroupName = $GroupName
@@ -154,6 +174,17 @@ $params = @{
     ButtonActivationType = if ($null -ne $buttonSettings) { $buttonSettings.ButtonActivationType } else { $null }
     Scenario = $Scenario
     DisplayMode = $DisplayMode
+}
+
+foreach ($parameterName in @(
+    'GroupName','Title','Body','ExpiresUtc','AppLogoPath','HeroImagePath',
+    'AppLogoBytes','AppLogoContentType','HeroImageBytes','HeroImageContentType',
+    'Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount',
+    'ButtonText','ButtonArguments','ButtonActivationType','Scenario','DisplayMode'
+)) {
+    if (-not $params.ContainsKey($parameterName)) {
+        $params[$parameterName] = $null
+    }
 }
 
 $sql = @'
