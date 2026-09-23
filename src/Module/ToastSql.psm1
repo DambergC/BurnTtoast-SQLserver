@@ -766,7 +766,7 @@ function Get-ToastNotificationParameters {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario')
     )
 
     $supportedParameterLookup = @{}
@@ -889,7 +889,7 @@ function Invoke-ToastNotification {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario')
     )
 
     $toastDetails = Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
@@ -908,6 +908,11 @@ function Invoke-ToastNotification {
             Write-Warning "Invalid toast scenario '$scenarioValue' for MessageId $messageId. Falling back to Default."
             $scenario = 'Default'
         }
+    }
+
+    if ($scenario -ne 'Default' -and @($SupportedParameters) -notcontains 'Scenario') {
+        Write-Warning "Installed BurntToast does not support toast scenarios for MessageId $messageId. Falling back to Default."
+        $scenario = 'Default'
     }
 
     try {
@@ -940,6 +945,9 @@ function Get-ToastNotificationSupportedParameters {
 
     $command = Get-Command $CommandName -ErrorAction Stop
     $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
+    if ($command.Parameters.Keys -contains 'Scenario') {
+        $supportedParameters += 'Scenario'
+    }
     $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
     $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
     if (($command.Parameters.Keys -contains 'Button') -and $hasButtonCommand) {
@@ -947,7 +955,9 @@ function Get-ToastNotificationSupportedParameters {
     }
 
     $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
+    $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
     $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
+    $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
     $newBtImageCommand = Get-Command 'New-BTImage' -ErrorAction SilentlyContinue
     $newBtActionCommand = Get-Command 'New-BTAction' -ErrorAction SilentlyContinue
     $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
@@ -976,7 +986,10 @@ function Get-ToastNotificationSupportedParameters {
     if (
         $null -ne $newBtAudioCommand -and
         $null -ne $newBtContentCommand -and
-        ($newBtAudioCommand.Parameters.Keys -contains 'Source') -and
+        (
+            ($newBtAudioCommand.Parameters.Keys -contains 'Source') -or
+            ($newBtAudioCommand.Parameters.Keys -contains 'Silent')
+        ) -and
         ($newBtContentCommand.Parameters.Keys -contains 'Audio')
     ) {
         $supportedParameters += 'Sound'
@@ -984,6 +997,21 @@ function Get-ToastNotificationSupportedParameters {
 
     if ($null -ne $submitBtNotificationCommand -and ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent')) {
         $supportedParameters += 'Urgent'
+    }
+
+    if (-not ($command.Parameters.Keys -contains 'Scenario')) {
+        if (
+            $null -ne $newBtContentCommand -and
+            $null -ne $newBtVisualCommand -and
+            $null -ne $newBtBindingCommand -and
+            $null -ne $newBtTextCommand -and
+            $null -ne $submitBtNotificationCommand -and
+            ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
+            ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
+            ($newBtBindingCommand.Parameters.Keys -contains 'Children')
+        ) {
+            $supportedParameters += 'Scenario'
+        }
     }
 
     return @($supportedParameters | Select-Object -Unique)

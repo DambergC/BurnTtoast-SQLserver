@@ -611,7 +611,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent','Scenario')
 
                     Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter {
                         $Scenario -eq 'Reminder' -and
@@ -672,7 +672,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
 
                     Should -Invoke New-BurntToastNotification -Times 0
                     Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Scenario -eq 'Reminder' }
@@ -732,7 +732,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
 
                     Should -Invoke New-BurntToastNotification -Times 1
                     Should -Invoke Submit-BTNotification -Times 0
@@ -797,7 +797,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
 
                     Should -Invoke New-BurntToastNotification -Times 0
                     Should -Invoke Submit-BTNotification -Times 1
@@ -852,7 +852,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
 
                     Should -Invoke New-BTAudio -Times 1 -ParameterFilter { $Source -eq 'ms-winsoundevent:Notification.Reminder' }
                     Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Audio.Source -eq 'ms-winsoundevent:Notification.Reminder' }
@@ -909,7 +909,7 @@ Describe 'ToastSql module' {
                         Scenario = 'Reminder'
                     }
 
-                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound')
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
 
                     Should -Invoke New-BTAudio -Times 1 -ParameterFilter { $Silent }
                     Should -Invoke Submit-BTNotification -Times 1
