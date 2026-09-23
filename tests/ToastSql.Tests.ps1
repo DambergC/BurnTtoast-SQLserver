@@ -151,6 +151,27 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'display mode settings' {
+        It 'defaults empty display modes to BurntToast' {
+            InModuleScope ToastSql {
+                Resolve-ToastDisplayMode -DisplayMode $null | Should -Be 'BurntToast'
+                Resolve-ToastDisplayMode -DisplayMode '   ' | Should -Be 'BurntToast'
+            }
+        }
+
+        It 'normalizes display mode values case-insensitively' {
+            InModuleScope ToastSql {
+                Resolve-ToastDisplayMode -DisplayMode 'wpf' | Should -Be 'Wpf'
+            }
+        }
+
+        It 'rejects unsupported display mode values' {
+            InModuleScope ToastSql {
+                { Resolve-ToastDisplayMode -DisplayMode 'Native' } | Should -Throw '*DisplayMode must be one of*'
+            }
+        }
+    }
+
     Context 'image input resolution' {
         It 'reads image bytes from a file path and infers the content type' {
             InModuleScope ToastSql {
@@ -453,7 +474,7 @@ Describe 'ToastSql module' {
         It 'adds all supplied parameters to the SQL command' {
             $cmd = InModuleScope ToastSql {
                 $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
-                foreach ($name in @('GroupName','Title','Body','Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount','ButtonText','ButtonArguments','ButtonActivationType','Scenario')) {
+                foreach ($name in @('GroupName','Title','Body','Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount','ButtonText','ButtonArguments','ButtonActivationType','Scenario','DisplayMode')) {
                     $value = switch ($name) {
                         'GroupName' { 'g' }
                         'Title' { 't' }
@@ -473,6 +494,7 @@ Describe 'ToastSql module' {
             $cmd.Parameters.Contains('@Body') | Should -Be $true
             $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
             $cmd.Parameters.Contains('@Scenario') | Should -Be $true
+            $cmd.Parameters.Contains('@DisplayMode') | Should -Be $true
         }
 
         It 'binds byte arrays as VarBinary max parameters' {
@@ -575,6 +597,80 @@ Describe 'ToastSql module' {
                     if ($script:capturedFailureAppLogoPath) {
                         Remove-Item -LiteralPath $script:capturedFailureAppLogoPath -Force -ErrorAction SilentlyContinue
                     }
+                }
+            }
+        }
+    }
+
+    Context 'display mode rendering' {
+        It 'uses BurntToast rendering when display mode is BurntToast' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock Show-ToastAcknowledgementWindow {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        DisplayMode = 'BurntToast'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text')
+
+                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter { $Text[0] -eq 'Title' -and $Text[1] -eq 'Body' }
+                    Should -Invoke Show-ToastAcknowledgementWindow -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'uses the WPF acknowledgement window when display mode is Wpf' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock Show-ToastAcknowledgementWindow {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        DisplayMode = 'Wpf'
+                        AppLogoPath = 'C:\Toast\logo.png'
+                        HeroImagePath = 'C:\Toast\hero.png'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Show-ToastAcknowledgementWindow -Times 1 -ParameterFilter {
+                        $MessageId -eq 42 -and
+                        $Title -eq 'Title' -and
+                        $Body -eq 'Body' -and
+                        $AppLogoPath -eq 'C:\Toast\logo.png' -and
+                        $HeroImagePath -eq 'C:\Toast\hero.png' -and
+                        $ButtonText -eq 'Open' -and
+                        $ButtonArguments -eq 'https://example.com' -and
+                        $ButtonActivationType -eq 'Protocol'
+                    }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
                 }
             }
         }
@@ -1278,8 +1374,10 @@ Describe 'ToastSql module' {
         It 'exposes queue/get/record contracts expected by the client scripts' {
             $repeatScriptPath = Join-Path $PSScriptRoot '..\sql\002-toast-design-repeat.sql'
             $buttonScriptPath = Join-Path $PSScriptRoot '..\sql\003-toast-button.sql'
+            $serverScriptPath = Join-Path $PSScriptRoot '..\src\Server\Send-ToastMessage.ps1'
             $repeatScriptText = Get-Content -Path $repeatScriptPath -Raw
             $buttonScriptText = Get-Content -Path $buttonScriptPath -Raw
+            $serverScriptText = Get-Content -Path $serverScriptPath -Raw
 
             $repeatScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_RecordToastDelivery"
             $repeatScriptText | Should -Match "@LeaseId uniqueidentifier"
@@ -1304,12 +1402,18 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@ButtonArguments nvarchar\(2048\) = NULL"
             $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
             $buttonScriptText | Should -Match "@Scenario varchar\(20\) = 'Default'"
+            $buttonScriptText | Should -Match "@DisplayMode varchar\(20\) = 'BurntToast'"
             $buttonScriptText | Should -Match "@ResolvedScenario varchar\(20\) = NULL OUTPUT"
             $buttonScriptText | Should -Match "Scenario must be Default, Reminder, Alarm, or IncomingCall"
+            $buttonScriptText | Should -Match "DisplayMode must be BurntToast or Wpf"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
+            $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD DisplayMode varchar\(20\) NULL"
             $buttonScriptText | Should -Match "m\.Scenario"
+            $buttonScriptText | Should -Match "m\.DisplayMode"
             $buttonScriptText | Should -Match "m\.AppLogoBytes"
             $buttonScriptText | Should -Match "m\.HeroImageBytes"
+            $serverScriptText | Should -Match '\[ValidateSet\(''BurntToast'',''Wpf''\)\]\[string\]\$DisplayMode = ''BurntToast'''
+            $serverScriptText | Should -Match "@DisplayMode = @DisplayMode"
         }
     }
 }

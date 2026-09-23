@@ -71,22 +71,57 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
 - `AppLogoPath` och `HeroImagePath` måste vara sökvägar som **klientdatorn** kan läsa när toasten visas, till exempel en lokal fil eller UNC-sökväg. Server-lokala sökvägar fungerar bara om exakt samma sökväg finns och är åtkomlig på klienten.
 - `Sound` valideras mot BurntToast-värdena `Default`, `IM`, `Mail`, `Reminder`, `SMS`, `Alarm`, `Alarm2`-`Alarm10` och `Call`, `Call2`-`Call10`.
 - `Scenario` valideras mot `Default`, `Reminder`, `Alarm` och `IncomingCall`. `Reminder` används när toasten ska ligga kvar tills användaren agerar, förutsatt att installerad BurntToast-version stöder scenario-rendering.
+- `DisplayMode` väljer visningstyp: `BurntToast` (standard, befintligt native-beteende) eller `Wpf` (egen kvittensruta som ligger kvar tills användaren bekräftar).
 - Repositoriet använder den dokumenterade BurntToast-parametern `-Urgent` för förhöjda/noterbara toastar. Om en installerad BurntToast-version saknar något optionalt argument visas toasten ändå med titel/brödtext och klienten loggar en tydlig varning.
 
-Exempel med persistent reminder-toast:
+### Välj visningsläge
+
+#### Native BurntToast (standard)
+
+`DisplayMode BurntToast` är standard för både gamla och nya meddelanden. Den här vägen bevarar nuvarande native-notis, Windows Notification Center, knappar, bilder, ljud, `Urgent` och scenario-hantering:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Påminnelse' `
+  -Body 'Detta visas som vanlig Windows-toast.' `
+  -DisplayMode BurntToast `
+  -Scenario Reminder `
+  -ButtonText 'Stäng' `
+  -ButtonActivationType Dismiss
+```
+
+#### WPF-kvittensruta
+
+`DisplayMode Wpf` visar i stället en egen topmost-kvittensruta i användarens interaktiva session. Den är **inte** en OS-native Windows-toast och placeras därför inte i Notification Center, men den stannar kvar tills användaren trycker på knappen `Acknowledge` (eller på en eventuell extra dismiss-knapp om sådan konfigurerats):
 
 ```powershell
 .\src\Server\Send-ToastMessage.ps1 `
   -ConfigPath .\config\config.psd1 `
   -GroupName 'IT-TEST' `
   -Title 'Bekräftelse krävs' `
-  -Body 'Du måste öppna eller stänga detta meddelande.' `
-  -Scenario Reminder `
-  -ButtonText 'Stäng' `
-  -ButtonActivationType Dismiss
+  -Body 'Detta meddelande ligger kvar tills användaren bekräftar det.' `
+  -DisplayMode Wpf `
+  -ButtonText 'Öppna ärende' `
+  -ButtonArguments 'https://status.example.se/ticket/12345' `
+  -ButtonActivationType Protocol
 ```
 
-Begränsning: Windows kan fortfarande låta användaren eller operativsystemet stänga/avfärda toasten. `Reminder`/andra scenarier gör den mer persistent, men garanterar inte absolut tvångskvittens.
+Skillnader mellan lägena:
+
+- `BurntToast`
+  - native Windows-toast
+  - kan fortfarande auto-dismissas enligt Windows regler
+  - kan synas i Windows Notification Center
+  - leverans kvitteras efter att toasten har visats, precis som tidigare
+- `Wpf`
+  - egen PowerShell/WPF-dialog, inte Notification Center
+  - ingen timeout eller auto-close
+  - leverans kvitteras först när användaren stänger dialogen via `Acknowledge` eller eventuell dismiss-knapp
+  - kan öppna samma protokoll/URL-knapp som native-läget, men knappen stänger inte dialogen om den är av typen `Protocol`
+
+Begränsning: `Scenario Reminder` och andra native Windows-scenarier kan fortfarande inte garantera absolut tvångskvittens. Använd `DisplayMode Wpf` när du behöver att meddelandet ligger kvar tills användaren aktivt bekräftar det.
 
 Exempel med binära bilder lagrade i SQL:
 
@@ -204,7 +239,7 @@ FROM dbo.vw_ToastMessageLocal;
 - Använd parametriserade SQL-kommandon; ändra inte scriptet till strängkonkatenering.
 - BurntToast från PSGallery bör ersättas av en internt signerad eller speglad paketkälla i produktion.
 - Binära bilder lagras i databasen. Planera därför för ökat lagringsbehov, backupstorlek och eventuell rensning av gamla toast-rader om stora bilder används ofta.
-- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. `sql/003-toast-button.sql` innehåller nu även `Scenario`-kolumnen och uppdaterad queue/pending-procedur. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till nya kolumner och procedurparametrar. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
+- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. `sql/003-toast-button.sql` innehåller nu även `Scenario`-, `DisplayMode`-kolumnerna och uppdaterad queue/pending-procedur. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till nya kolumner och procedurparametrar innan klient/script uppdateras. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera och `DisplayMode` defaultar till `BurntToast` för äldre rader.
 
 ## Felsökning
 
