@@ -972,6 +972,57 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'warns and continues when low-level scenario sound value is unsupported' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+                function New-BTAudio { param([string]$Source) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTAudio {}
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'UnsupportedTone'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
+
+                    Should -Invoke New-BTAudio -Times 0
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'Unsupported sound value' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAudio -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'preserves silent sound semantics for low-level scenario rendering when supported' {
             InModuleScope ToastSql {
                 function New-BurntToastNotification {
@@ -1178,6 +1229,7 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@ButtonArguments nvarchar\(2048\) = NULL"
             $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
             $buttonScriptText | Should -Match "@Scenario varchar\(20\) = 'Default'"
+            $buttonScriptText | Should -Match "@ResolvedScenario varchar\(20\) = NULL OUTPUT"
             $buttonScriptText | Should -Match "Scenario must be Default, Reminder, Alarm, or IncomingCall"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
             $buttonScriptText | Should -Match "m\.Scenario"

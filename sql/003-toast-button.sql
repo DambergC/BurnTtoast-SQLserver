@@ -44,7 +44,8 @@ CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @ButtonText nvarchar(200) = NULL,
     @ButtonArguments nvarchar(2048) = NULL,
     @ButtonActivationType varchar(20) = NULL,
-    @Scenario varchar(20) = 'Default'
+    @Scenario varchar(20) = 'Default',
+    @ResolvedScenario varchar(20) = NULL OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -71,6 +72,8 @@ BEGIN
 
     IF @Scenario NOT IN ('Default','Reminder','Alarm','IncomingCall')
         THROW 50030, 'Scenario must be Default, Reminder, Alarm, or IncomingCall.', 1;
+
+    SET @ResolvedScenario = @Scenario;
 
     IF @ButtonText IS NULL AND @ButtonArguments IS NOT NULL
         THROW 50008, 'ButtonText must be provided when ButtonArguments is supplied.', 1;
@@ -186,7 +189,7 @@ BEGIN
 
     COMMIT;
 
-    SELECT @MessageId AS MessageId, @Scenario AS Scenario;
+    SELECT @MessageId AS MessageId;
 END;
 GO
 
