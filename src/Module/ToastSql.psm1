@@ -912,11 +912,6 @@ function Invoke-ToastNotification {
         }
     }
 
-    if ($scenario -ne 'Default' -and @($SupportedParameters) -notcontains 'Scenario') {
-        Write-Warning "Installed BurntToast does not support toast scenarios for MessageId $messageId. Falling back to Default."
-        $scenario = 'Default'
-    }
-
     try {
         if ($scenario -eq 'Default') {
             $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction Stop
@@ -954,31 +949,6 @@ function Get-ToastNotificationSupportedParameters {
     $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
     if (($command.Parameters.Keys -contains 'Button') -and $hasButtonCommand) {
         $supportedParameters += 'Button'
-    }
-
-    $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
-    $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
-    $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
-    $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
-    $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
-
-    if (-not ($command.Parameters.Keys -contains 'Scenario')) {
-        if (
-            $null -ne $newBtContentCommand -and
-            $null -ne $newBtVisualCommand -and
-            $null -ne $newBtBindingCommand -and
-            $null -ne $newBtTextCommand -and
-            (
-                ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
-                ($newBtTextCommand.Parameters.Keys -contains 'Content')
-            ) -and
-            $null -ne $submitBtNotificationCommand -and
-            ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
-            ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
-            ($newBtBindingCommand.Parameters.Keys -contains 'Children')
-        ) {
-            $supportedParameters += 'Scenario'
-        }
     }
 
     return @($supportedParameters | Select-Object -Unique)

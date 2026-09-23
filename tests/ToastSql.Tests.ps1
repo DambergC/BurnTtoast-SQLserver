@@ -931,6 +931,88 @@ Describe 'ToastSql module' {
                 }
             }
         }
+
+        It 'passes urgent delivery to Submit-BTNotification when supported in low-level scenario rendering' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content, [switch]$Urgent) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        IsUrgent = $true
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Urgent','Scenario')
+
+                    Should -Invoke Submit-BTNotification -Times 1 -ParameterFilter { $Urgent }
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns when low-level scenario rendering cannot apply urgent delivery' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        IsUrgent = $true
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Urgent','Scenario')
+
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'without urgent delivery' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'local-time reporting SQL compatibility' {
