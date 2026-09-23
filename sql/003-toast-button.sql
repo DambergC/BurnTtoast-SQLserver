@@ -28,6 +28,8 @@ IF COL_LENGTH('dbo.ToastMessage', 'Scenario') IS NULL
 IF COL_LENGTH('dbo.ToastMessage', 'DisplayMode') IS NULL
     ALTER TABLE dbo.ToastMessage ADD DisplayMode varchar(20) NULL;
 
+    GO
+
 WHILE 1 = 1
 BEGIN
     UPDATE TOP (1000) dbo.ToastMessage
