@@ -513,7 +513,7 @@ function Invoke-ToastNotificationWithScenario {
             New-BurntToastNotification @scenarioInvocationParameters
             return $warnings.ToArray()
         } catch {
-            $warnings.Add("Installed BurntToast could not render scenario '$Scenario' directly. MessageId $MessageId will attempt low-level scenario rendering.")
+            $warnings.Add("Installed BurntToast could not render scenario '$Scenario' directly. MessageId $MessageId will attempt low-level scenario rendering. Details: $($_.Exception.Message)")
         }
     }
 
@@ -522,12 +522,16 @@ function Invoke-ToastNotificationWithScenario {
     $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
     $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
     $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+    $canBuildTextNode = $null -ne $newBtTextCommand -and (
+        ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
+        ($newBtTextCommand.Parameters.Keys -contains 'Content')
+    )
 
     if (
         $null -eq $newBtContentCommand -or
         $null -eq $newBtVisualCommand -or
         $null -eq $newBtBindingCommand -or
-        $null -eq $newBtTextCommand -or
+        -not $canBuildTextNode -or
         $null -eq $submitBtNotificationCommand -or
         -not ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -or
         -not ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -or
@@ -964,6 +968,10 @@ function Get-ToastNotificationSupportedParameters {
             $null -ne $newBtVisualCommand -and
             $null -ne $newBtBindingCommand -and
             $null -ne $newBtTextCommand -and
+            (
+                ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
+                ($newBtTextCommand.Parameters.Keys -contains 'Content')
+            ) -and
             $null -ne $submitBtNotificationCommand -and
             ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
             ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
