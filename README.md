@@ -2,6 +2,67 @@
 
 Gruppbaserade Windows-notiser med [BurntToast](https://github.com/Windos/BurntToast), PowerShell och Microsoft SQL Server.
 
+## Quick start
+
+Detta är den snabbaste vägen för att komma igång i en ny miljö.
+
+1. Skapa eller uppdatera databasen med SQL-skriptet i ordning:
+
+```sql
+-- kör i databasen som ska användas
+:ON ERROR EXIT
+
+-- 1) grundschema
+:r sql/001-schema.sql
+
+-- 2) toast-design och repeat-funktionalitet
+:r sql/002-toast-design-repeat.sql
+
+-- 3) knappfunktionalitet
+:r sql/003-toast-button.sql
+
+-- 4) lokal tidsrapportering
+:r sql/004-local-time-reporting.sql
+```
+
+2. Kopiera konfigurationen:
+
+```powershell
+Copy-Item .\config\config.example.psd1 .\config\config.psd1
+```
+
+3. Redigera `config/config.psd1` med servernamn, databas, grupptillhörighet och eventuella autentiseringsinställningar.
+
+4. Registrera klienten:
+
+```powershell
+.\src\Client\Start-ToastClient.ps1 -ConfigPath .\config\config.psd1 -Register
+```
+
+5. Köa ett testmeddelande:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Testmeddelande' `
+  -Body 'Detta är ett test.'
+```
+
+6. Kör klienten i den inloggade användarens session:
+
+```powershell
+.\src\Client\Start-ToastClient.ps1 -ConfigPath .\config\config.psd1 -Once
+```
+
+7. För kontinuerlig polling används:
+
+```powershell
+.\src\Client\Start-ToastClient.ps1 -ConfigPath .\config\config.psd1 -PollSeconds 30
+```
+
+Det finns även ett exempel på schemalagd driftstask i `deploy/Register-ToastClientTask.ps1`.
+
 ## Arkitektur
 
 - Administratören köar ett meddelande till en grupp i SQL Server.
