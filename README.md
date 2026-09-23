@@ -57,6 +57,7 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
   -Body 'VPN-tjänsten startas om 22:00.' `
   -AppLogoPath '\\fileserver\toast-assets\logo.png' `
   -HeroImagePath '\\fileserver\toast-assets\maintenance.jpg' `
+  -Scenario Reminder `
   -Sound Reminder `
   -Urgent
 ```
@@ -69,7 +70,23 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
 - Binära bilder materialiseras till temporära filer på klienten och tas bort direkt efter att BurntToast har anropats. Klienter behöver därför inte längre läsa serverns bildsökväg när binära bilder används.
 - `AppLogoPath` och `HeroImagePath` måste vara sökvägar som **klientdatorn** kan läsa när toasten visas, till exempel en lokal fil eller UNC-sökväg. Server-lokala sökvägar fungerar bara om exakt samma sökväg finns och är åtkomlig på klienten.
 - `Sound` valideras mot BurntToast-värdena `Default`, `IM`, `Mail`, `Reminder`, `SMS`, `Alarm`, `Alarm2`-`Alarm10` och `Call`, `Call2`-`Call10`.
+- `Scenario` valideras mot `Default`, `Reminder`, `Alarm` och `IncomingCall`. `Reminder` används när toasten ska ligga kvar tills användaren agerar, förutsatt att installerad BurntToast-version stöder scenario-rendering.
 - Repositoriet använder den dokumenterade BurntToast-parametern `-Urgent` för förhöjda/noterbara toastar. Om en installerad BurntToast-version saknar något optionalt argument visas toasten ändå med titel/brödtext och klienten loggar en tydlig varning.
+
+Exempel med persistent reminder-toast:
+
+```powershell
+.\src\Server\Send-ToastMessage.ps1 `
+  -ConfigPath .\config\config.psd1 `
+  -GroupName 'IT-TEST' `
+  -Title 'Bekräftelse krävs' `
+  -Body 'Du måste öppna eller stänga detta meddelande.' `
+  -Scenario Reminder `
+  -ButtonText 'Stäng' `
+  -ButtonActivationType Dismiss
+```
+
+Begränsning: Windows kan fortfarande låta användaren eller operativsystemet stänga/avfärda toasten. `Reminder`/andra scenarier gör den mer persistent, men garanterar inte absolut tvångskvittens.
 
 Exempel med binära bilder lagrade i SQL:
 
@@ -187,7 +204,7 @@ FROM dbo.vw_ToastMessageLocal;
 - Använd parametriserade SQL-kommandon; ändra inte scriptet till strängkonkatenering.
 - BurntToast från PSGallery bör ersättas av en internt signerad eller speglad paketkälla i produktion.
 - Binära bilder lagras i databasen. Planera därför för ökat lagringsbehov, backupstorlek och eventuell rensning av gamla toast-rader om stora bilder används ofta.
-- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till de nya binärkolumnerna och procedurparametrarna. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
+- Vid uppgradering: säkerställ först att databasen redan har grundschemat från `sql/001-schema.sql`. Installationer som bara körde `sql/001-schema.sql` tidigare ska därefter köra `sql/002-toast-design-repeat.sql`, **sedan** `sql/003-toast-button.sql`, och vid behov `sql/004-local-time-reporting.sql` i exakt den ordningen. `sql/002-toast-design-repeat.sql` och `sql/003-toast-button.sql` bygger vidare på varandra och ska alltid köras i ordning när du uppgraderar eller återapplicerar dem. `sql/003-toast-button.sql` innehåller nu även `Scenario`-kolumnen och uppdaterad queue/pending-procedur. Installationer som redan tidigare har körts upp till `002`/`003` kan köra `sql/002-toast-design-repeat.sql` och sedan `sql/003-toast-button.sql` igen för att lägga till nya kolumner och procedurparametrar. Befintliga `AppLogoPath`/`HeroImagePath`-värden fortsätter fungera.
 
 ## Felsökning
 
