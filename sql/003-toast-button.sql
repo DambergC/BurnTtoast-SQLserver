@@ -25,6 +25,41 @@ IF COL_LENGTH('dbo.ToastMessage', 'HeroImageContentType') IS NULL
 IF COL_LENGTH('dbo.ToastMessage', 'Scenario') IS NULL
     ALTER TABLE dbo.ToastMessage ADD Scenario varchar(20) NULL;
 
+IF COL_LENGTH('dbo.ToastMessage', 'DisplayMode') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD DisplayMode varchar(20) NULL;
+
+WHILE 1 = 1
+BEGIN
+    UPDATE TOP (1000) dbo.ToastMessage
+    SET DisplayMode = 'BurntToast'
+    WHERE DisplayMode IS NULL;
+
+    IF @@ROWCOUNT = 0
+        BREAK;
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.default_constraints dc
+    INNER JOIN sys.columns c
+        ON c.object_id = dc.parent_object_id
+       AND c.column_id = dc.parent_column_id
+    WHERE dc.parent_object_id = OBJECT_ID('dbo.ToastMessage')
+      AND c.name = 'DisplayMode'
+)
+    ALTER TABLE dbo.ToastMessage
+        ADD CONSTRAINT DF_ToastMessage_DisplayMode DEFAULT ('BurntToast') FOR DisplayMode;
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID('dbo.ToastMessage')
+      AND name = 'DisplayMode'
+      AND is_nullable = 1
+)
+    ALTER TABLE dbo.ToastMessage
+        ALTER COLUMN DisplayMode varchar(20) NOT NULL;
+
 GO
 CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @GroupName nvarchar(128),
@@ -45,6 +80,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @ButtonArguments nvarchar(2048) = NULL,
     @ButtonActivationType varchar(20) = NULL,
     @Scenario varchar(20) = 'Default',
+    @DisplayMode varchar(20) = 'BurntToast',
     @ResolvedScenario varchar(20) = NULL OUTPUT
 AS
 BEGIN
@@ -66,12 +102,19 @@ BEGIN
     SET @AppLogoContentType = LOWER(NULLIF(LTRIM(RTRIM(@AppLogoContentType)), ''));
     SET @HeroImageContentType = LOWER(NULLIF(LTRIM(RTRIM(@HeroImageContentType)), ''));
     SET @Scenario = NULLIF(LTRIM(RTRIM(@Scenario)), '');
+    SET @DisplayMode = NULLIF(LTRIM(RTRIM(@DisplayMode)), '');
 
     IF @Scenario IS NULL
         SET @Scenario = 'Default';
 
     IF @Scenario NOT IN ('Default','Reminder','Alarm','IncomingCall')
         THROW 50030, 'Scenario must be Default, Reminder, Alarm, or IncomingCall.', 1;
+
+    IF @DisplayMode IS NULL
+        SET @DisplayMode = 'BurntToast';
+
+    IF @DisplayMode NOT IN ('BurntToast','Wpf')
+        THROW 50031, 'DisplayMode must be BurntToast or Wpf.', 1;
 
     SET @ResolvedScenario = @Scenario;
 
@@ -157,7 +200,8 @@ BEGIN
         ButtonText,
         ButtonArguments,
         ButtonActivationType,
-        Scenario
+        Scenario,
+        DisplayMode
     )
     VALUES(
         @GroupId,
@@ -177,7 +221,8 @@ BEGIN
         @ButtonText,
         @ButtonArguments,
         @ButtonActivationType,
-        @Scenario
+        @Scenario,
+        @DisplayMode
     );
 
     DECLARE @MessageId bigint = SCOPE_IDENTITY();
@@ -245,6 +290,7 @@ BEGIN
            m.ButtonArguments,
            m.ButtonActivationType,
            m.Scenario,
+           m.DisplayMode,
            m.RepeatIntervalSeconds,
            m.RepeatCount,
            m.ExpiresUtc,

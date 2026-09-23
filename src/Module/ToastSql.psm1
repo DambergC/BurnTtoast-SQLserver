@@ -10,6 +10,8 @@ $script:ToastMaxImageBytes = 5MB
 $script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
 $script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
+$script:ToastSupportedDisplayModes = @('BurntToast','Wpf')
+$script:ToastSupportedWpfProtocolSchemes = @('http','https','mailto')
 $script:ToastSupportedScenarios = @('Default','Reminder','Alarm','IncomingCall')
 $script:ToastSqlNullParameterDefinitions = @{
     AppLogoBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
@@ -24,6 +26,7 @@ $script:ToastSqlNullParameterDefinitions = @{
     LeaseId = @{ SqlDbType = [System.Data.SqlDbType]::UniqueIdentifier }
     ExpiresUtc = @{ SqlDbType = [System.Data.SqlDbType]::DateTime2 }
     ButtonActivationType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
+    DisplayMode = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
     Scenario = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
 }
 
@@ -441,6 +444,383 @@ function Resolve-ToastScenario {
     }
 
     return $resolvedScenario
+}
+
+function Resolve-ToastDisplayMode {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][string]$DisplayMode
+    )
+
+    $normalizedDisplayMode = if ([string]::IsNullOrWhiteSpace($DisplayMode)) { 'BurntToast' } else { $DisplayMode.Trim() }
+    foreach ($supportedDisplayMode in $script:ToastSupportedDisplayModes) {
+        if ($supportedDisplayMode.Equals($normalizedDisplayMode, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $supportedDisplayMode
+        }
+    }
+
+    throw "DisplayMode must be one of: $($script:ToastSupportedDisplayModes -join ', ')."
+}
+
+function Get-ToastWpfBitmapImage {
+    [CmdletBinding()]
+    param(
+        [string]$Path,
+        [Parameter(Mandatory)][string]$ImageRole,
+        [AllowNull()][long]$MessageId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    try {
+        $resolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+        $bitmapImage = New-Object System.Windows.Media.Imaging.BitmapImage
+        $bitmapImage.BeginInit()
+        $bitmapImage.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+        $bitmapImage.UriSource = [System.Uri]::new($resolvedPath, [System.UriKind]::Absolute)
+        $bitmapImage.EndInit()
+        $bitmapImage.Freeze()
+        return $bitmapImage
+    } catch {
+        Write-Warning "Failed to load WPF $ImageRole image '$Path' for MessageId $($MessageId): $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Resolve-ToastWpfButtonSettings {
+    [CmdletBinding()]
+    param(
+        [string]$ButtonText,
+        [string]$ButtonArguments,
+        [string]$ButtonActivationType
+    )
+
+    $normalizedButtonText = if ([string]::IsNullOrWhiteSpace([string]$ButtonText)) { $null } else { [string]$ButtonText }
+    if ($null -eq $normalizedButtonText) {
+        return @{
+            ButtonText = $null
+            ButtonArguments = $null
+            ButtonActivationType = $null
+        }
+    }
+
+    $normalizedButtonArguments = if ([string]::IsNullOrWhiteSpace([string]$ButtonArguments)) { $null } else { [string]$ButtonArguments }
+    $normalizedButtonActivationType = if ([string]::IsNullOrWhiteSpace([string]$ButtonActivationType)) { 'Protocol' } else { [string]$ButtonActivationType }
+
+    if ($normalizedButtonActivationType -eq 'Dismiss' -or $null -eq $normalizedButtonArguments) {
+        return @{
+            ButtonText = $normalizedButtonText
+            ButtonArguments = $null
+            ButtonActivationType = 'Dismiss'
+        }
+    }
+
+    return @{
+        ButtonText = $normalizedButtonText
+        ButtonArguments = $normalizedButtonArguments
+        ButtonActivationType = 'Protocol'
+    }
+}
+
+function Resolve-ToastWpfProtocolUri {
+    [CmdletBinding()]
+    param(
+        [string]$ButtonArguments
+    )
+
+    if ([string]::IsNullOrWhiteSpace([string]$ButtonArguments)) {
+        return $null
+    }
+
+    $protocolUri = $null
+    if (-not [System.Uri]::TryCreate([string]$ButtonArguments, [System.UriKind]::Absolute, [ref]$protocolUri)) {
+        return $null
+    }
+
+    if ($script:ToastSupportedWpfProtocolSchemes -notcontains $protocolUri.Scheme.ToLowerInvariant()) {
+        return $null
+    }
+
+    return $protocolUri
+}
+
+function Invoke-ToastWpfProtocolAction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ButtonArguments
+    )
+
+    try {
+        Start-Process -FilePath $ButtonArguments -ErrorAction Stop | Out-Null
+        return $null
+    } catch {
+        return $_.Exception.Message
+    }
+}
+
+function Resolve-ToastWpfCloseBehavior {
+    [CmdletBinding()]
+    param(
+        [bool]$Acknowledged,
+        [bool]$SessionEnding
+    )
+
+    if ($Acknowledged -or $SessionEnding) {
+        return [pscustomobject]@{
+            AllowClose = $true
+        }
+    }
+
+    return [pscustomobject]@{
+        AllowClose = $false
+    }
+}
+
+function Show-ToastAcknowledgementWindow {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][long]$MessageId,
+        [Parameter(Mandatory)][string]$Title,
+        [Parameter(Mandatory)][string]$Body,
+        [string]$AppLogoPath,
+        [string]$HeroImagePath,
+        [string]$ButtonText,
+        [string]$ButtonArguments,
+        [ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType = 'Protocol'
+    )
+
+    $currentApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
+    if ($currentApartmentState -ne [System.Threading.ApartmentState]::STA) {
+        throw "WPF acknowledgement mode requires an STA thread. Start the client in an STA PowerShell host or use an STA runspace. Current apartment state: $currentApartmentState."
+    }
+
+    try {
+        Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase -ErrorAction Stop
+    } catch {
+        throw "WPF acknowledgement mode requires Windows Presentation Foundation assemblies. MessageId $MessageId failed. Details: $($_.Exception.Message)"
+    }
+
+    $windowState = [hashtable]::Synchronized(@{
+        Acknowledged = $false
+        SessionEnding = $false
+    })
+
+    $window = New-Object System.Windows.Window
+    $window.Title = if ([string]::IsNullOrWhiteSpace($Title)) { 'Notification' } else { $Title }
+    $window.WindowStyle = [System.Windows.WindowStyle]::None
+    $window.ResizeMode = [System.Windows.ResizeMode]::NoResize
+    $window.AllowsTransparency = $false
+    $window.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF202020')
+    $window.WindowStartupLocation = [System.Windows.WindowStartupLocation]::CenterScreen
+    $window.SizeToContent = [System.Windows.SizeToContent]::WidthAndHeight
+    $window.ShowInTaskbar = $true
+    $window.ShowActivated = $true
+    $window.Topmost = $true
+
+    $outerBorder = New-Object System.Windows.Controls.Border
+    $outerBorder.CornerRadius = [System.Windows.CornerRadius]::new(18)
+    $outerBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+    $outerBorder.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF404040')
+    $outerBorder.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF202020')
+    $outerBorder.Padding = [System.Windows.Thickness]::new(18)
+    $outerBorder.MaxWidth = 460
+
+    $rootPanel = New-Object System.Windows.Controls.StackPanel
+    $rootPanel.Orientation = [System.Windows.Controls.Orientation]::Vertical
+
+    $heroImage = Get-ToastWpfBitmapImage -Path $HeroImagePath -ImageRole 'hero' -MessageId $MessageId
+    if ($null -ne $heroImage) {
+        $heroImageControl = New-Object System.Windows.Controls.Image
+        $heroImageControl.Source = $heroImage
+        $heroImageControl.Stretch = [System.Windows.Media.Stretch]::UniformToFill
+        $heroImageControl.Height = 140
+        $heroImageControl.Margin = [System.Windows.Thickness]::new(0, 0, 0, 16)
+        $heroImageControl.SnapsToDevicePixels = $true
+        [void]$rootPanel.Children.Add($heroImageControl)
+    }
+
+    $contentGrid = New-Object System.Windows.Controls.Grid
+    $contentGrid.Margin = [System.Windows.Thickness]::new(0)
+
+    $appLogoImage = Get-ToastWpfBitmapImage -Path $AppLogoPath -ImageRole 'app logo' -MessageId $MessageId
+    if ($null -ne $appLogoImage) {
+        [void]$contentGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [System.Windows.GridLength]::Auto }))
+        [void]$contentGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star) }))
+
+        $logoImageControl = New-Object System.Windows.Controls.Image
+        $logoImageControl.Source = $appLogoImage
+        $logoImageControl.Width = 48
+        $logoImageControl.Height = 48
+        $logoImageControl.Margin = [System.Windows.Thickness]::new(0, 2, 14, 0)
+        $logoImageControl.Stretch = [System.Windows.Media.Stretch]::Uniform
+        [System.Windows.Controls.Grid]::SetColumn($logoImageControl, 0)
+        [void]$contentGrid.Children.Add($logoImageControl)
+    } else {
+        [void]$contentGrid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star) }))
+    }
+
+    $textPanel = New-Object System.Windows.Controls.StackPanel
+    $textPanel.Orientation = [System.Windows.Controls.Orientation]::Vertical
+
+    $titleRow = New-Object System.Windows.Controls.Grid
+    [void]$titleRow.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star) }))
+    [void]$titleRow.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [System.Windows.GridLength]::Auto }))
+    $titleRow.Margin = [System.Windows.Thickness]::new(0, 0, 0, 10)
+
+    $titleBlock = New-Object System.Windows.Controls.TextBlock
+    $titleBlock.Text = [string]$Title
+    $titleBlock.FontSize = 18
+    $titleBlock.FontWeight = [System.Windows.FontWeights]::SemiBold
+    $titleBlock.Foreground = [System.Windows.Media.Brushes]::White
+    $titleBlock.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    [System.Windows.Controls.Grid]::SetColumn($titleBlock, 0)
+    [void]$titleRow.Children.Add($titleBlock)
+
+    $closeButton = New-Object System.Windows.Controls.Button
+    $closeButton.Content = 'Close'
+    $closeButton.MinWidth = 78
+    $closeButton.Margin = [System.Windows.Thickness]::new(12, 0, 0, 0)
+    $closeButton.Padding = [System.Windows.Thickness]::new(10, 6, 10, 6)
+    $closeButton.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF2F2F2F')
+    $closeButton.Foreground = [System.Windows.Media.Brushes]::White
+    $closeButton.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF5A5A5A')
+    $closeButton.Add_Click({
+        $windowState['Acknowledged'] = $true
+        $window.Close()
+    })
+    [System.Windows.Controls.Grid]::SetColumn($closeButton, 1)
+    [void]$titleRow.Children.Add($closeButton)
+
+    [void]$textPanel.Children.Add($titleRow)
+
+    $bodyViewer = New-Object System.Windows.Controls.ScrollViewer
+    $bodyViewer.VerticalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Auto
+    $bodyViewer.HorizontalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Disabled
+    $bodyViewer.MaxHeight = 220
+
+    $bodyBlock = New-Object System.Windows.Controls.TextBlock
+    $bodyBlock.Text = [string]$Body
+    $bodyBlock.FontSize = 14
+    $bodyBlock.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FFF0F0F0')
+    $bodyBlock.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    $bodyBlock.LineStackingStrategy = [System.Windows.LineStackingStrategy]::BlockLineHeight
+    $bodyBlock.LineHeight = 20
+    $bodyViewer.Content = $bodyBlock
+    [void]$textPanel.Children.Add($bodyViewer)
+
+    if ($null -ne $appLogoImage) {
+        [System.Windows.Controls.Grid]::SetColumn($textPanel, 1)
+    } else {
+        [System.Windows.Controls.Grid]::SetColumn($textPanel, 0)
+    }
+    [void]$contentGrid.Children.Add($textPanel)
+    [void]$rootPanel.Children.Add($contentGrid)
+
+    $buttonPanel = New-Object System.Windows.Controls.StackPanel
+    $buttonPanel.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+    $buttonPanel.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+    $buttonPanel.Margin = [System.Windows.Thickness]::new(0, 18, 0, 0)
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$ButtonText)) {
+        $actionButton = New-Object System.Windows.Controls.Button
+        $actionButton.Content = [string]$ButtonText
+        $actionButton.MinWidth = 96
+        $actionButton.Margin = [System.Windows.Thickness]::new(0, 0, 10, 0)
+        $actionButton.Padding = [System.Windows.Thickness]::new(14, 8, 14, 8)
+        $actionButton.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF2F2F2F')
+        $actionButton.Foreground = [System.Windows.Media.Brushes]::White
+        $actionButton.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF5A5A5A')
+
+        if ($ButtonActivationType -eq 'Dismiss') {
+            $actionButton.Add_Click({
+                $windowState['Acknowledged'] = $true
+                $window.Close()
+            })
+        } else {
+            $protocolTarget = $ButtonArguments
+            $actionButton.Add_Click({
+                $protocolActionError = Invoke-ToastWpfProtocolAction -ButtonArguments $protocolTarget
+                if (-not [string]::IsNullOrWhiteSpace($protocolActionError)) {
+                    [void][System.Windows.MessageBox]::Show(
+                        $window,
+                        "Failed to open '$protocolTarget'.`n`n$protocolActionError",
+                        'Notification action failed',
+                        [System.Windows.MessageBoxButton]::OK,
+                        [System.Windows.MessageBoxImage]::Warning
+                    )
+                    $window.Activate() | Out-Null
+                } else {
+                    $windowState['Acknowledged'] = $true
+                    $window.Close()
+                }
+            })
+        }
+
+        if ($null -ne $actionButton) {
+            [void]$buttonPanel.Children.Add($actionButton)
+        }
+    }
+
+    $acknowledgeButton = New-Object System.Windows.Controls.Button
+    $acknowledgeButton.Content = 'Acknowledge'
+    $acknowledgeButton.MinWidth = 124
+    $acknowledgeButton.Padding = [System.Windows.Thickness]::new(16, 8, 16, 8)
+    $acknowledgeButton.IsDefault = $true
+    $acknowledgeButton.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF0078D4')
+    $acknowledgeButton.Foreground = [System.Windows.Media.Brushes]::White
+    $acknowledgeButton.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FF0078D4')
+    $acknowledgeButton.Add_Click({
+        $windowState['Acknowledged'] = $true
+        $window.Close()
+    })
+    [void]$buttonPanel.Children.Add($acknowledgeButton)
+
+    [void]$rootPanel.Children.Add($buttonPanel)
+    $outerBorder.Child = $rootPanel
+    $window.Content = $outerBorder
+
+    $window.Add_Closing({
+        param($sender, $eventArgs)
+
+        $closeBehavior = Resolve-ToastWpfCloseBehavior -Acknowledged:$windowState['Acknowledged'] -SessionEnding:$windowState['SessionEnding']
+        if (-not $closeBehavior.AllowClose) {
+            $eventArgs.Cancel = $true
+            $sender.Activate() | Out-Null
+        }
+    })
+
+    $window.Add_ContentRendered({
+        $workArea = [System.Windows.SystemParameters]::WorkArea
+        $window.Left = [Math]::Max($workArea.Left + 12, $workArea.Right - $window.ActualWidth - 16)
+        $window.Top = [Math]::Max($workArea.Top + 12, $workArea.Bottom - $window.ActualHeight - 16)
+        $window.Activate() | Out-Null
+        $acknowledgeButton.Focus() | Out-Null
+    })
+
+    $sessionEndingHandler = [Microsoft.Win32.SessionEndingEventHandler]{
+        param($sender, $eventArgs)
+
+        $windowState['SessionEnding'] = $true
+    }
+
+    $sessionEndingRegistered = $false
+    try {
+        [Microsoft.Win32.SystemEvents]::add_SessionEnding($sessionEndingHandler)
+        $sessionEndingRegistered = $true
+    } catch {
+        Write-Warning "Failed to subscribe to SessionEnding for WPF acknowledgement mode. MessageId $MessageId may rely on in-window acknowledgement handling only. Details: $($_.Exception.Message)"
+    }
+
+    try {
+        [void]$window.ShowDialog()
+    }
+    finally {
+        if ($sessionEndingRegistered) {
+            [Microsoft.Win32.SystemEvents]::remove_SessionEnding($sessionEndingHandler)
+        }
+    }
 }
 
 function ConvertTo-ToastSoundSourceUri {
@@ -934,16 +1314,37 @@ function Invoke-ToastNotification {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario','DisplayMode')
     )
 
-    $toastDetails = Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
-    foreach ($warning in $toastDetails.Warnings) {
+    $messageId = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId'
+    $displayMode = 'BurntToast'
+    $displayModeValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'DisplayMode'
+    if (-not [string]::IsNullOrWhiteSpace([string]$displayModeValue)) {
+        try {
+            $displayMode = Resolve-ToastDisplayMode -DisplayMode ([string]$displayModeValue)
+        } catch {
+            Write-Warning "Invalid display mode '$displayModeValue' for MessageId $messageId. Falling back to BurntToast."
+            $displayMode = 'BurntToast'
+        }
+    }
+
+    $toastDetails = if ($displayMode -eq 'Wpf') {
+        Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters @('Text','AppLogo','HeroImage')
+    } else {
+        Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
+    }
+
+    $toastWarnings = $toastDetails.Warnings
+    if ($displayMode -eq 'Wpf') {
+        $toastWarnings = @($toastWarnings | Where-Object { $_ -notmatch "button actions|dismiss action buttons|parameter 'Button'" })
+    }
+
+    foreach ($warning in $toastWarnings) {
         Write-Warning $warning
     }
 
     $toastParameters = $toastDetails.Parameters
-    $messageId = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId'
     $scenario = 'Default'
     $scenarioValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Scenario'
     if (-not [string]::IsNullOrWhiteSpace([string]$scenarioValue)) {
@@ -956,7 +1357,42 @@ function Invoke-ToastNotification {
     }
 
     try {
-        if ($scenario -eq 'Default') {
+        if ($displayMode -eq 'Wpf') {
+            $buttonSettings = Resolve-ToastWpfButtonSettings `
+                -ButtonText (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonText') `
+                -ButtonArguments (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonArguments') `
+                -ButtonActivationType (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonActivationType')
+
+            if ($buttonSettings.ButtonActivationType -eq 'Protocol') {
+                $resolvedProtocolUri = Resolve-ToastWpfProtocolUri -ButtonArguments $buttonSettings.ButtonArguments
+                if ($null -eq $resolvedProtocolUri) {
+                    Write-Warning "WPF protocol buttons only support these URI schemes: $($script:ToastSupportedWpfProtocolSchemes -join ', '). MessageId $messageId will be shown without the optional action button."
+                    $buttonSettings = @{
+                        ButtonText = $null
+                        ButtonArguments = $null
+                        ButtonActivationType = $null
+                    }
+                } else {
+                    $buttonSettings.ButtonArguments = $resolvedProtocolUri.AbsoluteUri
+                }
+            }
+
+            $toastTextParts = @($toastParameters['Text'])
+            $toastTitle = if ($toastTextParts.Count -ge 1) { [string]$toastTextParts[0] } else { '' }
+            $toastBody = if ($toastTextParts.Count -ge 2) { [string]$toastTextParts[1] } else { '' }
+            $wpfAppLogoPath = if ($toastParameters.ContainsKey('AppLogo')) { [string]$toastParameters['AppLogo'] } else { [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'AppLogoPath') }
+            $wpfHeroImagePath = if ($toastParameters.ContainsKey('HeroImage')) { [string]$toastParameters['HeroImage'] } else { [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'HeroImagePath') }
+
+            Show-ToastAcknowledgementWindow `
+                -MessageId $messageId `
+                -Title $toastTitle `
+                -Body $toastBody `
+                -AppLogoPath $wpfAppLogoPath `
+                -HeroImagePath $wpfHeroImagePath `
+                -ButtonText $buttonSettings.ButtonText `
+                -ButtonArguments $buttonSettings.ButtonArguments `
+                -ButtonActivationType $(if ($null -eq $buttonSettings.ButtonActivationType) { 'Dismiss' } else { $buttonSettings.ButtonActivationType })
+        } elseif ($scenario -eq 'Default') {
             $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction Stop
             $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastParameters -BurntToastCommand $newBurntToastCommand -MessageId $messageId
             foreach ($warning in $invocationDetails.Warnings) {
