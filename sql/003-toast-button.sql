@@ -28,9 +28,15 @@ IF COL_LENGTH('dbo.ToastMessage', 'Scenario') IS NULL
 IF COL_LENGTH('dbo.ToastMessage', 'DisplayMode') IS NULL
     ALTER TABLE dbo.ToastMessage ADD DisplayMode varchar(20) NULL;
 
-UPDATE dbo.ToastMessage
-SET DisplayMode = 'BurntToast'
-WHERE DisplayMode IS NULL;
+WHILE 1 = 1
+BEGIN
+    UPDATE TOP (1000) dbo.ToastMessage
+    SET DisplayMode = 'BurntToast'
+    WHERE DisplayMode IS NULL;
+
+    IF @@ROWCOUNT = 0
+        BREAK;
+END;
 
 IF NOT EXISTS (
     SELECT 1

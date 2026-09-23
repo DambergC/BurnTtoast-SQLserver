@@ -94,7 +94,7 @@ Server-scriptet kan nu lagra valfri designmetadata i kön och klienten skickar b
 
 #### WPF-kvittensruta
 
-`DisplayMode Wpf` visar i stället en egen topmost-kvittensruta i användarens interaktiva session. Den är **inte** en OS-native Windows-toast och placeras därför inte i Notification Center, men den stannar kvar tills användaren trycker på knappen `Acknowledge` (eller på en eventuell extra dismiss-knapp om sådan konfigurerats):
+`DisplayMode Wpf` visar i stället en egen topmost-kvittensruta i användarens interaktiva session. Den är **inte** en OS-native Windows-toast och placeras därför inte i Notification Center, men den stannar kvar tills användaren kvitterar den via `Acknowledge`, den inbyggda `Close`-knappen eller en eventuell extra dismiss-knapp. Fönstret fokuserar `Acknowledge`-knappen så att `Enter` också fungerar som tangentbords-kvittens:
 
 ```powershell
 .\src\Server\Send-ToastMessage.ps1 `
@@ -118,8 +118,9 @@ Skillnader mellan lägena:
 - `Wpf`
   - egen PowerShell/WPF-dialog, inte Notification Center
   - ingen timeout eller auto-close
-  - leverans kvitteras först när användaren stänger dialogen via `Acknowledge` eller eventuell dismiss-knapp
-  - kan öppna samma protokoll/URL-knapp som native-läget, men knappen stänger inte dialogen om den är av typen `Protocol`
+  - leverans kvitteras först när användaren stänger dialogen via `Acknowledge`, den inbyggda `Close`-knappen, en dismiss-knapp eller en lyckad WPF-protokollknapp
+  - kan öppna samma protokoll/URL-knapp som native-läget, men WPF-knappen begränsas till säkra URI-scheman (`http`, `https`, `mailto`) och stänger dialogen först när start av protokoll/URL lyckas
+  - kräver att klientskriptet körs i en interaktiv **STA**-PowerShell-tråd/session för att WPF-fönstret ska kunna skapas
 
 Begränsning: `Scenario Reminder` och andra native Windows-scenarier kan fortfarande inte garantera absolut tvångskvittens. Använd `DisplayMode Wpf` när du behöver att meddelandet ligger kvar tills användaren aktivt bekräftar det.
 
