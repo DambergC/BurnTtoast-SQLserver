@@ -674,7 +674,10 @@ function Invoke-ToastNotificationWithScenario {
 
         Submit-BTNotification @submitParameters
     } catch {
-        $warnings.Add("Installed BurntToast low-level scenario rendering failed for scenario '$Scenario'. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+        $lowLevelErrorMessage = $_.Exception.Message
+        $warnings.Add("Installed BurntToast low-level scenario rendering failed for scenario '$Scenario'. MessageId $MessageId failed. Details: $lowLevelErrorMessage")
+        $fallbackSucceeded = $false
+        $fallbackErrorMessage = $null
         if ($null -ne $newBurntToastCommand) {
             $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
             foreach ($warning in $fallbackInvocationDetails.Warnings) {
@@ -684,9 +687,19 @@ function Invoke-ToastNotificationWithScenario {
             $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
             try {
                 New-BurntToastNotification @fallbackInvocationParameters
+                $fallbackSucceeded = $true
             } catch {
-                $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario' after low-level failure. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+                $fallbackErrorMessage = $_.Exception.Message
+                $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario' after low-level failure. MessageId $MessageId failed. Details: $fallbackErrorMessage")
             }
+        }
+
+        if (-not $fallbackSucceeded) {
+            if ([string]::IsNullOrWhiteSpace($fallbackErrorMessage)) {
+                throw "Low-level scenario rendering failed for MessageId $MessageId and no fallback toast could be shown. Details: $lowLevelErrorMessage"
+            }
+
+            throw "Low-level scenario rendering failed for MessageId $MessageId and fallback default rendering also failed. Details: $lowLevelErrorMessage | Fallback: $fallbackErrorMessage"
         }
     }
 
