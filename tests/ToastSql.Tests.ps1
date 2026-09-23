@@ -1203,6 +1203,38 @@ Describe 'ToastSql module' {
                 }
             }
         }
+
+        It 'throws when low-level scenario rendering and fallback default rendering both fail' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) throw 'fallback-boom' }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) throw 'lowlevel-boom' }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    { Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario') } |
+                        Should -Throw '*fallback default rendering also failed*'
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'local-time reporting SQL compatibility' {
