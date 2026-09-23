@@ -130,6 +130,27 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'scenario settings' {
+        It 'defaults empty scenarios to Default' {
+            InModuleScope ToastSql {
+                Resolve-ToastScenario -Scenario $null | Should -Be 'Default'
+                Resolve-ToastScenario -Scenario '   ' | Should -Be 'Default'
+            }
+        }
+
+        It 'normalizes scenario values case-insensitively' {
+            InModuleScope ToastSql {
+                Resolve-ToastScenario -Scenario 'reminder' | Should -Be 'Reminder'
+            }
+        }
+
+        It 'rejects unsupported scenario values' {
+            InModuleScope ToastSql {
+                { Resolve-ToastScenario -Scenario 'Persistent' } | Should -Throw '*Scenario must be one of*'
+            }
+        }
+    }
+
     Context 'image input resolution' {
         It 'reads image bytes from a file path and infers the content type' {
             InModuleScope ToastSql {
@@ -432,7 +453,7 @@ Describe 'ToastSql module' {
         It 'adds all supplied parameters to the SQL command' {
             $cmd = InModuleScope ToastSql {
                 $moduleCmd = [System.Data.SqlClient.SqlCommand]::new()
-                foreach ($name in @('GroupName','Title','Body','Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount','ButtonText','ButtonArguments','ButtonActivationType')) {
+                foreach ($name in @('GroupName','Title','Body','Sound','IsUrgent','RepeatIntervalSeconds','RepeatCount','ButtonText','ButtonArguments','ButtonActivationType','Scenario')) {
                     $value = switch ($name) {
                         'GroupName' { 'g' }
                         'Title' { 't' }
@@ -451,6 +472,7 @@ Describe 'ToastSql module' {
             $cmd.Parameters.Contains('@Title') | Should -Be $true
             $cmd.Parameters.Contains('@Body') | Should -Be $true
             $cmd.Parameters.Contains('@ButtonText') | Should -Be $true
+            $cmd.Parameters.Contains('@Scenario') | Should -Be $true
         }
 
         It 'binds byte arrays as VarBinary max parameters' {
@@ -494,13 +516,6 @@ Describe 'ToastSql module' {
                         [string[]]$Text,
                         [string]$AppLogo
                     )
-                }
-
-                Mock New-BurntToastNotification {
-                    param(
-                        [string[]]$Text,
-                        [string]$AppLogo
-                    )
 
                     $script:capturedAppLogoPath = $AppLogo
                     Test-Path -LiteralPath $AppLogo | Should -Be $true
@@ -536,13 +551,6 @@ Describe 'ToastSql module' {
                         [string[]]$Text,
                         [string]$AppLogo
                     )
-                }
-
-                Mock New-BurntToastNotification {
-                    param(
-                        [string[]]$Text,
-                        [string]$AppLogo
-                    )
 
                     $script:capturedFailureAppLogoPath = $AppLogo
                     throw 'boom'
@@ -567,6 +575,663 @@ Describe 'ToastSql module' {
                     if ($script:capturedFailureAppLogoPath) {
                         Remove-Item -LiteralPath $script:capturedFailureAppLogoPath -Force -ErrorAction SilentlyContinue
                     }
+                }
+            }
+        }
+    }
+
+    Context 'persistent scenario rendering' {
+        It 'passes scenario directly when New-BurntToastNotification supports it' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo,
+                        [string]$HeroImage,
+                        [string]$Sound,
+                        [switch]$Urgent,
+                        [string]$Scenario
+                    )
+                }
+
+                Mock New-BurntToastNotification {
+                    param(
+                        [string[]]$Text,
+                        [string]$AppLogo,
+                        [string]$HeroImage,
+                        [string]$Sound,
+                        [switch]$Urgent,
+                        [string]$Scenario
+                    )
+                }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        AppLogoPath = 'C:\Toast\logo.png'
+                        HeroImagePath = 'C:\Toast\hero.png'
+                        Sound = 'Reminder'
+                        IsUrgent = $true
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter {
+                        $Scenario -eq 'Reminder' -and
+                        $AppLogo -eq 'C:\Toast\logo.png' -and
+                        $HeroImage -eq 'C:\Toast\hero.png' -and
+                        $Sound -eq 'Reminder' -and
+                        $Urgent
+                    }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'uses New-BTContent and Submit-BTNotification when scenario support requires low-level commands' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                function New-BTText {
+                    param([string]$Text)
+                }
+
+                function New-BTBinding {
+                    param([object[]]$Children)
+                }
+
+                function New-BTVisual {
+                    param($BindingGeneric)
+                }
+
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario
+                    )
+                }
+
+                function Submit-BTNotification {
+                    param($Content)
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Scenario -eq 'Reminder' }
+                    Should -Invoke Submit-BTNotification -Times 1
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'supports low-level scenario submission when Submit-BTNotification uses Toast parameter' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Toast) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Scenario -eq 'Reminder' }
+                    Should -Invoke Submit-BTNotification -Times 1 -ParameterFilter { $null -ne $Toast }
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'supports low-level scenario rendering when New-BTText uses Content parameter' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Content) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Content = $Content } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke New-BTText -Times 2 -ParameterFilter { $Content -in @('Title','Body') }
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'renders low-level scenario images and button actions when supported' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children, $AppLogoOverride, $HeroImage) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario, $Actions) }
+                function New-BTImage { param([string]$Source, [switch]$AppLogoOverride, [switch]$HeroImage) }
+                function New-BTButton { param([string]$Content, [string]$ActivationType, [string]$Arguments) }
+                function New-BTAction { param([object[]]$Buttons) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTImage { [pscustomobject]@{ Source = $Source; AppLogoOverride = $AppLogoOverride; HeroImage = $HeroImage } }
+                Mock New-BTButton { [pscustomobject]@{ Content = $Content; ActivationType = $ActivationType; Arguments = $Arguments } }
+                Mock New-BTAction { [pscustomobject]@{ Buttons = $Buttons } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children; AppLogoOverride = $AppLogoOverride; HeroImage = $HeroImage } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Actions = $Actions } }
+                Mock Submit-BTNotification {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                        AppLogoPath = 'C:\Toast\logo.png'
+                        HeroImagePath = 'C:\Toast\hero.png'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Button','Scenario')
+
+                    Should -Invoke New-BTImage -Times 1 -ParameterFilter { $Source -eq 'C:\Toast\logo.png' -and $AppLogoOverride }
+                    Should -Invoke New-BTImage -Times 1 -ParameterFilter { $Source -eq 'C:\Toast\hero.png' -and $HeroImage }
+                    Should -Invoke New-BTAction -Times 1
+                    Should -Invoke Submit-BTNotification -Times 1
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTImage -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTButton -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAction -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'falls back and warns when BurntToast lacks persistent scenario support' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                function New-BTText {
+                    param([string]$Text)
+                }
+
+                function New-BTBinding {
+                    param([object[]]$Children)
+                }
+
+                function New-BTVisual {
+                    param($BindingGeneric)
+                }
+
+                function New-BTContent {
+                    param($Visual)
+                }
+
+                function Submit-BTNotification {
+                    param($Content)
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Visual = $Visual } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 1 -ParameterFilter { $Text.Count -eq 2 -and $Text[0] -eq 'Title' -and $Text[1] -eq 'Body' }
+                    Should -Invoke Submit-BTNotification -Times 0
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'does not support persistent toast scenario' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns but still submits when low-level scenario rendering lacks sound support' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param(
+                        [string[]]$Text
+                    )
+                }
+
+                function New-BTText {
+                    param([string]$Text)
+                }
+
+                function New-BTBinding {
+                    param([object[]]$Children)
+                }
+
+                function New-BTVisual {
+                    param($BindingGeneric)
+                }
+
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+
+                function Submit-BTNotification {
+                    param($Content)
+                }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'Reminder'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'without custom sound' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'maps supported low-level sound values to New-BTAudio source URIs' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param([string[]]$Text)
+                }
+
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+                function New-BTAudio {
+                    param([string]$Source)
+                }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTAudio { [pscustomobject]@{ Source = $Source } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'Reminder'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
+
+                    Should -Invoke New-BTAudio -Times 1 -ParameterFilter { $Source -eq 'ms-winsoundevent:Notification.Reminder' }
+                    Should -Invoke New-BTContent -Times 1 -ParameterFilter { $Audio.Source -eq 'ms-winsoundevent:Notification.Reminder' }
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAudio -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns and continues when low-level scenario sound value is unsupported' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+                function New-BTAudio { param([string]$Source) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTAudio {}
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'UnsupportedTone'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
+
+                    Should -Invoke New-BTAudio -Times 0
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'Unsupported sound value' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAudio -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'preserves silent sound semantics for low-level scenario rendering when supported' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification {
+                    param([string[]]$Text)
+                }
+
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent {
+                    param(
+                        $Visual,
+                        [string]$Scenario,
+                        $Audio
+                    )
+                }
+                function New-BTAudio {
+                    param([switch]$Silent)
+                }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTAudio { [pscustomobject]@{ Silent = $Silent } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario; Audio = $Audio } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Sound = 'Silent'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Sound','Scenario')
+
+                    Should -Invoke New-BTAudio -Times 1 -ParameterFilter { $Silent }
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTAudio -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'passes urgent delivery to Submit-BTNotification when supported in low-level scenario rendering' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content, [switch]$Urgent) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        IsUrgent = $true
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Urgent','Scenario')
+
+                    Should -Invoke Submit-BTNotification -Times 1 -ParameterFilter { $Urgent }
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'warns when low-level scenario rendering cannot apply urgent delivery' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        IsUrgent = $true
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Urgent','Scenario')
+
+                    Should -Invoke Submit-BTNotification -Times 1
+                    Should -Invoke Write-Warning -Times 1 -ParameterFilter { $Message -match 'without urgent delivery' }
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'throws when low-level scenario rendering and fallback default rendering both fail' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) throw 'fallback-boom' }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) throw 'lowlevel-boom' }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Content) }
+
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    { Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario') } |
+                        Should -Throw '*fallback default rendering also failed*'
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
                 }
             }
         }
@@ -638,6 +1303,11 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@ButtonText nvarchar\(200\) = NULL"
             $buttonScriptText | Should -Match "@ButtonArguments nvarchar\(2048\) = NULL"
             $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
+            $buttonScriptText | Should -Match "@Scenario varchar\(20\) = 'Default'"
+            $buttonScriptText | Should -Match "@ResolvedScenario varchar\(20\) = NULL OUTPUT"
+            $buttonScriptText | Should -Match "Scenario must be Default, Reminder, Alarm, or IncomingCall"
+            $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
+            $buttonScriptText | Should -Match "m\.Scenario"
             $buttonScriptText | Should -Match "m\.AppLogoBytes"
             $buttonScriptText | Should -Match "m\.HeroImageBytes"
         }

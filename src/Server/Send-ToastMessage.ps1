@@ -20,7 +20,8 @@ param(
     [Nullable[int]]$RepeatCount,
     [Parameter(HelpMessage='Optional text shown on a single toast action button.')][string]$ButtonText,
     [Parameter(HelpMessage='Optional button argument, typically an absolute URL or protocol URI.')][string]$ButtonArguments,
-    [Parameter(HelpMessage='Button activation type. Use Protocol to open a URI or Dismiss to close the toast.')][ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType
+    [Parameter(HelpMessage='Button activation type. Use Protocol to open a URI or Dismiss to close the toast.')][ValidateSet('Protocol','Dismiss')][string]$ButtonActivationType,
+    [ValidateSet('Default','Reminder','Alarm','IncomingCall')][string]$Scenario = 'Default'
 )
 
 Set-StrictMode -Version Latest
@@ -150,6 +151,7 @@ $params = @{
     ButtonText = if ($null -ne $buttonSettings) { $buttonSettings.ButtonText } else { $null }
     ButtonArguments = if ($null -ne $buttonSettings) { $buttonSettings.ButtonArguments } else { $null }
     ButtonActivationType = if ($null -ne $buttonSettings) { $buttonSettings.ButtonActivationType } else { $null }
+    Scenario = $Scenario
 }
 
 $sql = @'
@@ -170,7 +172,8 @@ EXEC dbo.usp_QueueToastMessage
     @RepeatCount = @RepeatCount,
     @ButtonText = @ButtonText,
     @ButtonArguments = @ButtonArguments,
-    @ButtonActivationType = @ButtonActivationType
+    @ButtonActivationType = @ButtonActivationType,
+    @Scenario = @Scenario
 '@
 
 $result = Invoke-ToastSql `

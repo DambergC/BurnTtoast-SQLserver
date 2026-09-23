@@ -22,6 +22,9 @@ IF COL_LENGTH('dbo.ToastMessage', 'HeroImageBytes') IS NULL
 IF COL_LENGTH('dbo.ToastMessage', 'HeroImageContentType') IS NULL
     ALTER TABLE dbo.ToastMessage ADD HeroImageContentType varchar(100) NULL;
 
+IF COL_LENGTH('dbo.ToastMessage', 'Scenario') IS NULL
+    ALTER TABLE dbo.ToastMessage ADD Scenario varchar(20) NULL;
+
 GO
 CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @GroupName nvarchar(128),
@@ -40,7 +43,9 @@ CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @RepeatCount int = NULL,
     @ButtonText nvarchar(200) = NULL,
     @ButtonArguments nvarchar(2048) = NULL,
-    @ButtonActivationType varchar(20) = NULL
+    @ButtonActivationType varchar(20) = NULL,
+    @Scenario varchar(20) = 'Default',
+    @ResolvedScenario varchar(20) = NULL OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -60,6 +65,15 @@ BEGIN
     SET @ButtonActivationType = NULLIF(LTRIM(RTRIM(@ButtonActivationType)), '');
     SET @AppLogoContentType = LOWER(NULLIF(LTRIM(RTRIM(@AppLogoContentType)), ''));
     SET @HeroImageContentType = LOWER(NULLIF(LTRIM(RTRIM(@HeroImageContentType)), ''));
+    SET @Scenario = NULLIF(LTRIM(RTRIM(@Scenario)), '');
+
+    IF @Scenario IS NULL
+        SET @Scenario = 'Default';
+
+    IF @Scenario NOT IN ('Default','Reminder','Alarm','IncomingCall')
+        THROW 50030, 'Scenario must be Default, Reminder, Alarm, or IncomingCall.', 1;
+
+    SET @ResolvedScenario = @Scenario;
 
     IF @ButtonText IS NULL AND @ButtonArguments IS NOT NULL
         THROW 50008, 'ButtonText must be provided when ButtonArguments is supplied.', 1;
@@ -142,7 +156,8 @@ BEGIN
         RepeatCount,
         ButtonText,
         ButtonArguments,
-        ButtonActivationType
+        ButtonActivationType,
+        Scenario
     )
     VALUES(
         @GroupId,
@@ -161,7 +176,8 @@ BEGIN
         @RepeatCount,
         @ButtonText,
         @ButtonArguments,
-        @ButtonActivationType
+        @ButtonActivationType,
+        @Scenario
     );
 
     DECLARE @MessageId bigint = SCOPE_IDENTITY();
@@ -228,6 +244,7 @@ BEGIN
            m.ButtonText,
            m.ButtonArguments,
            m.ButtonActivationType,
+           m.Scenario,
            m.RepeatIntervalSeconds,
            m.RepeatCount,
            m.ExpiresUtc,

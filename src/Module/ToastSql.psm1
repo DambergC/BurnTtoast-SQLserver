@@ -10,6 +10,7 @@ $script:ToastMaxImageBytes = 5MB
 $script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
 $script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
+$script:ToastSupportedScenarios = @('Default','Reminder','Alarm','IncomingCall')
 $script:ToastSqlNullParameterDefinitions = @{
     AppLogoBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
     HeroImageBytes = @{ SqlDbType = [System.Data.SqlDbType]::VarBinary; Size = -1 }
@@ -23,6 +24,7 @@ $script:ToastSqlNullParameterDefinitions = @{
     LeaseId = @{ SqlDbType = [System.Data.SqlDbType]::UniqueIdentifier }
     ExpiresUtc = @{ SqlDbType = [System.Data.SqlDbType]::DateTime2 }
     ButtonActivationType = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
+    Scenario = @{ SqlDbType = [System.Data.SqlDbType]::VarChar; Size = 20 }
 }
 
 function Get-ToastSqlCredentialValues {
@@ -152,6 +154,7 @@ function Clear-StaleToastTemporaryFiles {
     $cutoffUtc = [datetime]::UtcNow.AddMinutes(-$script:ToastTemporaryFileRetentionMinutes)
     $supportedExtensions = @($script:ToastSupportedImageContentTypes.Values)
 
+    $staleFiles = [System.Collections.Generic.List[string]]::new()
     foreach ($filePath in [System.IO.Directory]::EnumerateFiles($temporaryDirectory, "$($script:ToastTemporaryFilePrefix)*")) {
         try {
             $fileInfo = [System.IO.FileInfo]::new($filePath)
@@ -161,8 +164,16 @@ function Clear-StaleToastTemporaryFiles {
             $ownerProcessIsRunning = $hasOwnerProcessId -and $null -ne (Get-Process -Id $ownerProcessId -ErrorAction SilentlyContinue)
 
             if (($supportedExtensions -contains $fileInfo.Extension.ToLowerInvariant()) -and $fileInfo.LastWriteTimeUtc -lt $cutoffUtc -and -not $ownerProcessIsRunning) {
-                Remove-Item -LiteralPath $filePath -Force -ErrorAction Stop
+                $staleFiles.Add($filePath)
             }
+        } catch {
+            continue
+        }
+    }
+
+    foreach ($staleFilePath in $staleFiles) {
+        try {
+            Remove-Item -LiteralPath $staleFilePath -Force -ErrorAction Stop
         } catch {
             continue
         }
@@ -417,6 +428,284 @@ function Resolve-ToastQueueResult {
     }
 }
 
+function Resolve-ToastScenario {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][string]$Scenario
+    )
+
+    $normalizedScenario = if ([string]::IsNullOrWhiteSpace($Scenario)) { 'Default' } else { $Scenario.Trim() }
+    $resolvedScenario = $script:ToastSupportedScenarios | Where-Object { $_.Equals($normalizedScenario, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+    if ($null -eq $resolvedScenario) {
+        throw "Scenario must be one of: $($script:ToastSupportedScenarios -join ', ')."
+    }
+
+    return $resolvedScenario
+}
+
+function ConvertTo-ToastSoundSourceUri {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Sound
+    )
+
+    $normalizedSound = $Sound.Trim()
+    switch -Regex ($normalizedSound) {
+        '^(?i)Default$' { return 'ms-winsoundevent:Notification.Default' }
+        '^(?i)IM$' { return 'ms-winsoundevent:Notification.IM' }
+        '^(?i)Mail$' { return 'ms-winsoundevent:Notification.Mail' }
+        '^(?i)Reminder$' { return 'ms-winsoundevent:Notification.Reminder' }
+        '^(?i)SMS$' { return 'ms-winsoundevent:Notification.SMS' }
+        '^(?i)Alarm$' { return 'ms-winsoundevent:Notification.Looping.Alarm' }
+        '^(?i)Call$' { return 'ms-winsoundevent:Notification.Looping.Call' }
+        '^(?i)Alarm([2-9]|10)$' { return "ms-winsoundevent:Notification.Looping.Alarm$($Matches[1])" }
+        '^(?i)Call([2-9]|10)$' { return "ms-winsoundevent:Notification.Looping.Call$($Matches[1])" }
+    }
+
+    return $null
+}
+
+function Get-ToastBurntToastInvocationDetails {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$ToastParameters,
+        [Parameter(Mandatory)]$BurntToastCommand,
+        [AllowNull()][long]$MessageId
+    )
+
+    $parametersToInvoke = @{}
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    foreach ($parameterName in $ToastParameters.Keys) {
+        if ($BurntToastCommand.Parameters.Keys -contains $parameterName) {
+            $parametersToInvoke[$parameterName] = $ToastParameters[$parameterName]
+        } else {
+            $warnings.Add("Installed BurntToast does not support parameter '$parameterName'. MessageId $MessageId will be shown without this option.")
+        }
+    }
+
+    return [pscustomobject]@{
+        Parameters = $parametersToInvoke
+        Warnings = $warnings.ToArray()
+    }
+}
+
+function Invoke-ToastNotificationWithScenario {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$ToastParameters,
+        [Parameter(Mandatory)][string]$Scenario,
+        [AllowNull()][long]$MessageId
+    )
+
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction SilentlyContinue
+
+    if ($null -ne $newBurntToastCommand -and ($newBurntToastCommand.Parameters.Keys -contains 'Scenario')) {
+        $toastWithScenario = @{} + $ToastParameters
+        $toastWithScenario['Scenario'] = $Scenario
+        $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastWithScenario -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+        foreach ($warning in $invocationDetails.Warnings) {
+            $warnings.Add($warning)
+        }
+
+        $scenarioInvocationParameters = $invocationDetails.Parameters
+        try {
+            New-BurntToastNotification @scenarioInvocationParameters
+            return $warnings.ToArray()
+        } catch {
+            $warnings.Add("Installed BurntToast could not render scenario '$Scenario' directly. MessageId $MessageId will attempt low-level scenario rendering. Details: $($_.Exception.Message)")
+        }
+    }
+
+    $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
+    $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
+    $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
+    $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
+    $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+    $submitContentParameterName = $null
+    if ($null -ne $submitBtNotificationCommand) {
+        if ($submitBtNotificationCommand.Parameters.Keys -contains 'Content') {
+            $submitContentParameterName = 'Content'
+        } elseif ($submitBtNotificationCommand.Parameters.Keys -contains 'Toast') {
+            $submitContentParameterName = 'Toast'
+        }
+    }
+    $canBuildTextNode = $null -ne $newBtTextCommand -and (
+        ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
+        ($newBtTextCommand.Parameters.Keys -contains 'Content')
+    )
+
+    if (
+        $null -eq $newBtContentCommand -or
+        $null -eq $newBtVisualCommand -or
+        $null -eq $newBtBindingCommand -or
+        -not $canBuildTextNode -or
+        $null -eq $submitBtNotificationCommand -or
+        [string]::IsNullOrWhiteSpace($submitContentParameterName) -or
+        -not ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -or
+        -not ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -or
+        -not ($newBtBindingCommand.Parameters.Keys -contains 'Children')
+    ) {
+        $warnings.Add("Installed BurntToast version does not support persistent toast scenario '$Scenario'. MessageId $MessageId will be shown as a default toast.")
+        if ($null -eq $newBurntToastCommand) {
+            throw "Installed BurntToast version cannot render scenario '$Scenario' because both New-BurntToastNotification and required low-level scenario commands are unavailable."
+        }
+
+        $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+        foreach ($warning in $fallbackInvocationDetails.Warnings) {
+            $warnings.Add($warning)
+        }
+
+        $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
+        try {
+            New-BurntToastNotification @fallbackInvocationParameters
+        } catch {
+            $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario'. MessageId $MessageId failed. Details: $($_.Exception.Message)")
+        }
+        return $warnings.ToArray()
+    }
+
+    $children = [System.Collections.Generic.List[object]]::new()
+    foreach ($textPart in @($ToastParameters['Text'])) {
+        if ([string]::IsNullOrWhiteSpace([string]$textPart)) {
+            continue
+        }
+
+        if ($newBtTextCommand.Parameters.Keys -contains 'Text') {
+            $children.Add((New-BTText -Text ([string]$textPart)))
+        } else {
+            $children.Add((New-BTText -Content ([string]$textPart)))
+        }
+    }
+
+    if ($children.Count -eq 0) {
+        if ($newBtTextCommand.Parameters.Keys -contains 'Text') {
+            $children.Add((New-BTText -Text ''))
+        } else {
+            $children.Add((New-BTText -Content ''))
+        }
+    }
+
+    $bindingParameters = @{
+        Children = $children.ToArray()
+    }
+
+    $newBtImageCommand = Get-Command 'New-BTImage' -ErrorAction SilentlyContinue
+    $canBuildAppLogoImage = $null -ne $newBtImageCommand -and ($newBtImageCommand.Parameters.Keys -contains 'Source') -and ($newBtImageCommand.Parameters.Keys -contains 'AppLogoOverride')
+    $canBuildHeroImage = $null -ne $newBtImageCommand -and ($newBtImageCommand.Parameters.Keys -contains 'Source') -and ($newBtImageCommand.Parameters.Keys -contains 'HeroImage')
+    if ($ToastParameters.ContainsKey('AppLogo') -and -not [string]::IsNullOrWhiteSpace([string]$ToastParameters['AppLogo'])) {
+        if ($canBuildAppLogoImage -and $newBtBindingCommand.Parameters.Keys -contains 'AppLogoOverride') {
+            $bindingParameters['AppLogoOverride'] = New-BTImage -Source ([string]$ToastParameters['AppLogo']) -AppLogoOverride
+        } else {
+            $warnings.Add("Installed BurntToast version does not support app-logo rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without app-logo image.")
+        }
+    }
+
+    if ($ToastParameters.ContainsKey('HeroImage') -and -not [string]::IsNullOrWhiteSpace([string]$ToastParameters['HeroImage'])) {
+        if ($canBuildHeroImage -and $newBtBindingCommand.Parameters.Keys -contains 'HeroImage') {
+            $bindingParameters['HeroImage'] = New-BTImage -Source ([string]$ToastParameters['HeroImage']) -HeroImage
+        } else {
+            $warnings.Add("Installed BurntToast version does not support hero-image rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without hero image.")
+        }
+    }
+
+    try {
+        $binding = New-BTBinding @bindingParameters
+        $visual = New-BTVisual -BindingGeneric $binding
+        $contentParameters = @{
+            Visual = $visual
+            Scenario = $Scenario
+        }
+
+        if ($ToastParameters.ContainsKey('Button')) {
+            $newBtActionCommand = Get-Command 'New-BTAction' -ErrorAction SilentlyContinue
+            if (
+                $null -ne $newBtActionCommand -and
+                ($newBtActionCommand.Parameters.Keys -contains 'Buttons') -and
+                ($newBtContentCommand.Parameters.Keys -contains 'Actions')
+            ) {
+                $contentParameters['Actions'] = New-BTAction -Buttons @($ToastParameters['Button'])
+            } else {
+                $warnings.Add("Installed BurntToast version does not support button actions for persistent scenario '$Scenario'. MessageId $MessageId will be shown without buttons.")
+            }
+        }
+
+        if ($ToastParameters.ContainsKey('Sound')) {
+            $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
+            if (
+                $null -ne $newBtAudioCommand -and
+                ($newBtContentCommand.Parameters.Keys -contains 'Audio')
+            ) {
+                $soundName = [string]$ToastParameters['Sound']
+                if ($soundName.Equals('Silent', [System.StringComparison]::OrdinalIgnoreCase)) {
+                    if ($newBtAudioCommand.Parameters.Keys -contains 'Silent') {
+                        $contentParameters['Audio'] = New-BTAudio -Silent
+                    } else {
+                        $warnings.Add("Installed BurntToast version does not support silent audio rendering for persistent scenario '$Scenario'. MessageId $MessageId will use default sound behavior.")
+                    }
+                } else {
+                    if ($newBtAudioCommand.Parameters.Keys -contains 'Source') {
+                        $soundSource = ConvertTo-ToastSoundSourceUri -Sound $soundName
+                        if ([string]::IsNullOrWhiteSpace($soundSource)) {
+                            $warnings.Add("Unsupported sound value '$($ToastParameters['Sound'])' for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                        } else {
+                            $contentParameters['Audio'] = New-BTAudio -Source $soundSource
+                        }
+                    } else {
+                        $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                    }
+                }
+            } else {
+                $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+            }
+        }
+
+        $content = New-BTContent @contentParameters
+        $submitParameters = @{}
+        $submitParameters[$submitContentParameterName] = $content
+
+        if ($ToastParameters.ContainsKey('Urgent') -and [System.Convert]::ToBoolean($ToastParameters['Urgent'])) {
+            if ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent') {
+                $submitParameters['Urgent'] = $true
+            } else {
+                $warnings.Add("Installed BurntToast version does not support urgent delivery for persistent scenario '$Scenario'. MessageId $MessageId will be shown without urgent delivery.")
+            }
+        }
+
+        Submit-BTNotification @submitParameters
+    } catch {
+        $lowLevelErrorMessage = $_.Exception.Message
+        $warnings.Add("Installed BurntToast low-level scenario rendering failed for scenario '$Scenario'. MessageId $MessageId failed. Details: $lowLevelErrorMessage")
+        $fallbackSucceeded = $false
+        $fallbackErrorMessage = $null
+        if ($null -ne $newBurntToastCommand) {
+            $fallbackInvocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $ToastParameters -BurntToastCommand $newBurntToastCommand -MessageId $MessageId
+            foreach ($warning in $fallbackInvocationDetails.Warnings) {
+                $warnings.Add($warning)
+            }
+
+            $fallbackInvocationParameters = $fallbackInvocationDetails.Parameters
+            try {
+                New-BurntToastNotification @fallbackInvocationParameters
+                $fallbackSucceeded = $true
+            } catch {
+                $fallbackErrorMessage = $_.Exception.Message
+                $warnings.Add("Installed BurntToast could not render fallback default toast for scenario '$Scenario' after low-level failure. MessageId $MessageId failed. Details: $fallbackErrorMessage")
+            }
+        }
+
+        if (-not $fallbackSucceeded) {
+            if ([string]::IsNullOrWhiteSpace($fallbackErrorMessage)) {
+                throw "Low-level scenario rendering failed for MessageId $MessageId and no fallback toast could be shown. Details: $lowLevelErrorMessage"
+            }
+
+            throw "Low-level scenario rendering failed for MessageId $MessageId and fallback default rendering also failed. Details: $lowLevelErrorMessage | Fallback: $fallbackErrorMessage"
+        }
+    }
+
+    return $warnings.ToArray()
+}
+
 function Add-ToastSqlParameter {
     param(
         [Parameter(Mandatory)][System.Data.SqlClient.SqlCommand]$Command,
@@ -522,7 +811,7 @@ function Get-ToastNotificationParameters {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario')
     )
 
     $supportedParameterLookup = @{}
@@ -645,7 +934,7 @@ function Invoke-ToastNotification {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$ToastRow,
-        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button')
+        [string[]]$SupportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent','Button','Scenario')
     )
 
     $toastDetails = Get-ToastNotificationParameters -ToastRow $ToastRow -SupportedParameters $SupportedParameters
@@ -654,8 +943,34 @@ function Invoke-ToastNotification {
     }
 
     $toastParameters = $toastDetails.Parameters
+    $messageId = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId'
+    $scenario = 'Default'
+    $scenarioValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Scenario'
+    if (-not [string]::IsNullOrWhiteSpace([string]$scenarioValue)) {
+        try {
+            $scenario = Resolve-ToastScenario -Scenario ([string]$scenarioValue)
+        } catch {
+            Write-Warning "Invalid toast scenario '$scenarioValue' for MessageId $messageId. Falling back to Default."
+            $scenario = 'Default'
+        }
+    }
+
     try {
-        New-BurntToastNotification @toastParameters
+        if ($scenario -eq 'Default') {
+            $newBurntToastCommand = Get-Command 'New-BurntToastNotification' -ErrorAction Stop
+            $invocationDetails = Get-ToastBurntToastInvocationDetails -ToastParameters $toastParameters -BurntToastCommand $newBurntToastCommand -MessageId $messageId
+            foreach ($warning in $invocationDetails.Warnings) {
+                Write-Warning $warning
+            }
+
+            $defaultScenarioInvocationParameters = $invocationDetails.Parameters
+            New-BurntToastNotification @defaultScenarioInvocationParameters
+        } else {
+            $scenarioWarnings = Invoke-ToastNotificationWithScenario -ToastParameters $toastParameters -Scenario $scenario -MessageId $messageId
+            foreach ($warning in $scenarioWarnings) {
+                Write-Warning $warning
+            }
+        }
     }
     finally {
         Remove-ToastTemporaryFiles -Paths $toastDetails.TemporaryFiles
@@ -669,14 +984,43 @@ function Get-ToastNotificationSupportedParameters {
     )
 
     $command = Get-Command $CommandName -ErrorAction Stop
-    $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
+    $supportedParameters = @(@('Text','AppLogo','HeroImage','Sound','Urgent') | Where-Object { $command.Parameters.Keys -contains $_ })
+    if ($command.Parameters.Keys -contains 'Scenario') {
+        $supportedParameters += 'Scenario'
+    } else {
+        $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
+        $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
+        $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
+        $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
+        $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+        $hasSubmitContentParameter = $null -ne $submitBtNotificationCommand -and (
+            ($submitBtNotificationCommand.Parameters.Keys -contains 'Content') -or
+            ($submitBtNotificationCommand.Parameters.Keys -contains 'Toast')
+        )
+        if (
+            $null -ne $newBtContentCommand -and
+            $null -ne $newBtVisualCommand -and
+            $null -ne $newBtBindingCommand -and
+            $null -ne $newBtTextCommand -and
+            (
+                ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
+                ($newBtTextCommand.Parameters.Keys -contains 'Content')
+            ) -and
+            $hasSubmitContentParameter -and
+            ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
+            ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
+            ($newBtBindingCommand.Parameters.Keys -contains 'Children')
+        ) {
+            $supportedParameters += 'Scenario'
+        }
+    }
     $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
     $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0
     if (($command.Parameters.Keys -contains 'Button') -and $hasButtonCommand) {
         $supportedParameters += 'Button'
     }
 
-    return $supportedParameters
+    return @($supportedParameters | Select-Object -Unique)
 }
 
 function Get-ToastSqlCredential {
