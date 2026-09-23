@@ -944,6 +944,28 @@ function Get-ToastNotificationSupportedParameters {
     $supportedParameters = @('Text','AppLogo','HeroImage','Sound','Urgent' | Where-Object { $command.Parameters.Keys -contains $_ })
     if ($command.Parameters.Keys -contains 'Scenario') {
         $supportedParameters += 'Scenario'
+    } else {
+        $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
+        $newBtVisualCommand = Get-Command 'New-BTVisual' -ErrorAction SilentlyContinue
+        $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
+        $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
+        $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+        if (
+            $null -ne $newBtContentCommand -and
+            $null -ne $newBtVisualCommand -and
+            $null -ne $newBtBindingCommand -and
+            $null -ne $newBtTextCommand -and
+            (
+                ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
+                ($newBtTextCommand.Parameters.Keys -contains 'Content')
+            ) -and
+            $null -ne $submitBtNotificationCommand -and
+            ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
+            ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
+            ($newBtBindingCommand.Parameters.Keys -contains 'Children')
+        ) {
+            $supportedParameters += 'Scenario'
+        }
     }
     $buttonCommand = Get-Command 'New-BTButton' -ErrorAction SilentlyContinue
     $hasButtonCommand = $null -ne $buttonCommand -and @($buttonCommand).Count -gt 0

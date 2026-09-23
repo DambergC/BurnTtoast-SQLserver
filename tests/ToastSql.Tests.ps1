@@ -1083,6 +1083,7 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@ButtonActivationType varchar\(20\) = NULL"
             $buttonScriptText | Should -Match "@Scenario varchar\(20\) = 'Default'"
             $buttonScriptText | Should -Match "Scenario must be Default, Reminder, Alarm, or IncomingCall"
+            $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
             $buttonScriptText | Should -Match "m\.Scenario"
             $buttonScriptText | Should -Match "m\.AppLogoBytes"
             $buttonScriptText | Should -Match "m\.HeroImageBytes"
