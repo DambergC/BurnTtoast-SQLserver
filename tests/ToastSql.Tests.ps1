@@ -694,6 +694,47 @@ Describe 'ToastSql module' {
             }
         }
 
+        It 'supports low-level scenario submission when Submit-BTNotification uses Toast parameter' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+                function New-BTText { param([string]$Text) }
+                function New-BTBinding { param([object[]]$Children) }
+                function New-BTVisual { param($BindingGeneric) }
+                function New-BTContent { param($Visual, [string]$Scenario) }
+                function Submit-BTNotification { param($Toast) }
+
+                Mock New-BurntToastNotification {}
+                Mock New-BTText { [pscustomobject]@{ Text = $Text } }
+                Mock New-BTBinding { [pscustomobject]@{ Children = $Children } }
+                Mock New-BTVisual { [pscustomobject]@{ Binding = $BindingGeneric } }
+                Mock New-BTContent { [pscustomobject]@{ Scenario = $Scenario } }
+                Mock Submit-BTNotification {}
+                Mock Write-Warning {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        Scenario = 'Reminder'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row -SupportedParameters @('Text','Scenario')
+
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Submit-BTNotification -Times 1 -ParameterFilter { $null -ne $Toast }
+                    Should -Invoke Write-Warning -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTText -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTBinding -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTVisual -ErrorAction SilentlyContinue
+                    Remove-Item Function:\New-BTContent -ErrorAction SilentlyContinue
+                    Remove-Item Function:\Submit-BTNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
         It 'renders low-level scenario images and button actions when supported' {
             InModuleScope ToastSql {
                 function New-BurntToastNotification { param([string[]]$Text) }

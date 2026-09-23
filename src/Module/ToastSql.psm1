@@ -522,6 +522,14 @@ function Invoke-ToastNotificationWithScenario {
     $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
     $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
     $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+    $submitContentParameterName = $null
+    if ($null -ne $submitBtNotificationCommand) {
+        if ($submitBtNotificationCommand.Parameters.Keys -contains 'Content') {
+            $submitContentParameterName = 'Content'
+        } elseif ($submitBtNotificationCommand.Parameters.Keys -contains 'Toast') {
+            $submitContentParameterName = 'Toast'
+        }
+    }
     $canBuildTextNode = $null -ne $newBtTextCommand -and (
         ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
         ($newBtTextCommand.Parameters.Keys -contains 'Content')
@@ -533,6 +541,7 @@ function Invoke-ToastNotificationWithScenario {
         $null -eq $newBtBindingCommand -or
         -not $canBuildTextNode -or
         $null -eq $submitBtNotificationCommand -or
+        [string]::IsNullOrWhiteSpace($submitContentParameterName) -or
         -not ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -or
         -not ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -or
         -not ($newBtBindingCommand.Parameters.Keys -contains 'Children')
@@ -647,9 +656,8 @@ function Invoke-ToastNotificationWithScenario {
     }
 
     $content = New-BTContent @contentParameters
-    $submitParameters = @{
-        Content = $content
-    }
+    $submitParameters = @{}
+    $submitParameters[$submitContentParameterName] = $content
 
     if ($ToastParameters.ContainsKey('Urgent') -and [System.Convert]::ToBoolean($ToastParameters['Urgent'])) {
         if ($submitBtNotificationCommand.Parameters.Keys -contains 'Urgent') {
@@ -950,6 +958,10 @@ function Get-ToastNotificationSupportedParameters {
         $newBtBindingCommand = Get-Command 'New-BTBinding' -ErrorAction SilentlyContinue
         $newBtTextCommand = Get-Command 'New-BTText' -ErrorAction SilentlyContinue
         $submitBtNotificationCommand = Get-Command 'Submit-BTNotification' -ErrorAction SilentlyContinue
+        $hasSubmitContentParameter = $null -ne $submitBtNotificationCommand -and (
+            ($submitBtNotificationCommand.Parameters.Keys -contains 'Content') -or
+            ($submitBtNotificationCommand.Parameters.Keys -contains 'Toast')
+        )
         if (
             $null -ne $newBtContentCommand -and
             $null -ne $newBtVisualCommand -and
@@ -959,7 +971,7 @@ function Get-ToastNotificationSupportedParameters {
                 ($newBtTextCommand.Parameters.Keys -contains 'Text') -or
                 ($newBtTextCommand.Parameters.Keys -contains 'Content')
             ) -and
-            $null -ne $submitBtNotificationCommand -and
+            $hasSubmitContentParameter -and
             ($newBtContentCommand.Parameters.Keys -contains 'Scenario') -and
             ($newBtVisualCommand.Parameters.Keys -contains 'BindingGeneric') -and
             ($newBtBindingCommand.Parameters.Keys -contains 'Children')
