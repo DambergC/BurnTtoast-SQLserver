@@ -515,8 +515,12 @@ function Invoke-ToastNotificationWithScenario {
         }
 
         $scenarioInvocationParameters = $invocationDetails.Parameters
-        New-BurntToastNotification @scenarioInvocationParameters
-        return $warnings.ToArray()
+        try {
+            New-BurntToastNotification @scenarioInvocationParameters
+            return $warnings.ToArray()
+        } catch {
+            $warnings.Add("Installed BurntToast could not render scenario '$Scenario' directly. MessageId $MessageId will attempt low-level scenario rendering.")
+        }
     }
 
     $newBtContentCommand = Get-Command 'New-BTContent' -ErrorAction SilentlyContinue
@@ -614,14 +618,26 @@ function Invoke-ToastNotificationWithScenario {
         $newBtAudioCommand = Get-Command 'New-BTAudio' -ErrorAction SilentlyContinue
         if (
             $null -ne $newBtAudioCommand -and
-            ($newBtAudioCommand.Parameters.Keys -contains 'Source') -and
             ($newBtContentCommand.Parameters.Keys -contains 'Audio')
         ) {
-            $soundSource = ConvertTo-ToastSoundSourceUri -Sound ([string]$ToastParameters['Sound'])
-            if ([string]::IsNullOrWhiteSpace($soundSource)) {
-                $warnings.Add("Unsupported sound value '$($ToastParameters['Sound'])' for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+            $soundName = [string]$ToastParameters['Sound']
+            if ($soundName -eq 'Silent') {
+                if ($newBtAudioCommand.Parameters.Keys -contains 'Silent') {
+                    $contentParameters['Audio'] = New-BTAudio -Silent
+                } else {
+                    $warnings.Add("Installed BurntToast version does not support silent audio rendering for persistent scenario '$Scenario'. MessageId $MessageId will use default sound behavior.")
+                }
             } else {
-                $contentParameters['Audio'] = New-BTAudio -Source $soundSource
+                if ($newBtAudioCommand.Parameters.Keys -contains 'Source') {
+                    $soundSource = ConvertTo-ToastSoundSourceUri -Sound $soundName
+                    if ([string]::IsNullOrWhiteSpace($soundSource)) {
+                        $warnings.Add("Unsupported sound value '$($ToastParameters['Sound'])' for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                    } else {
+                        $contentParameters['Audio'] = New-BTAudio -Source $soundSource
+                    }
+                } else {
+                    $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
+                }
             }
         } else {
             $warnings.Add("Installed BurntToast version does not support sound rendering for persistent scenario '$Scenario'. MessageId $MessageId will be shown without custom sound.")
