@@ -2,12 +2,8 @@
 param([Parameter(Mandatory)][string]$ConfigPath,[switch]$Register,[switch]$Once,[int]$PollSeconds=30)
 Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
-$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds') -NullableProperties @('ClientName','InternalPowerShellRepository') -NonEmptyProperties @('ClientGroups') -ResolveClientName
-if(-not (Get-Command New-BurntToastNotification -ErrorAction SilentlyContinue)) {
-    if($config.InternalPowerShellRepository){Install-Module BurntToast -Repository $config.InternalPowerShellRepository -Scope CurrentUser -Force}
-    else {Write-Warning 'BurntToast is not installed. Install it from your approved repository.'}
-    Import-Module BurntToast -ErrorAction Stop
-}
+$config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','AppDeployToolkitModulePath','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds') -NullableProperties @('ClientName','InternalPowerShellRepository','AppDeployToolkitModulePath') -NonEmptyProperties @('ClientGroups') -ResolveClientName
+Set-ToastClientDependencyOptions -InternalPowerShellRepository $config.InternalPowerShellRepository -AppDeployToolkitModulePath $config.AppDeployToolkitModulePath
 Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
@@ -100,7 +96,9 @@ function Invoke-Poll {
         }
 
         try{
-            Invoke-ToastNotification -ToastRow $row -SupportedParameters (Get-SupportedToastParameters)
+            $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $row.DisplayMode
+            $supportedParameters = if ($resolvedDisplayMode -eq 'BurntToast') { Get-SupportedToastParameters } else { @() }
+            Invoke-ToastNotification -ToastRow $row -SupportedParameters $supportedParameters
         }catch{
             $toastErrorRecord = $_
             $toastErrorMessage = $toastErrorRecord.Exception.Message

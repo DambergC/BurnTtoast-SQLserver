@@ -147,8 +147,8 @@ BEGIN
     IF @DisplayMode IS NULL
         SET @DisplayMode = 'BurntToast';
 
-    IF @DisplayMode NOT IN ('BurntToast','Wpf')
-        THROW 50031, 'DisplayMode must be BurntToast or Wpf.', 1;
+    IF @DisplayMode NOT IN ('BurntToast','Wpf','AppDeployToolkit')
+        THROW 50031, 'DisplayMode must be BurntToast, Wpf, or AppDeployToolkit.', 1;
 
     SET @ResolvedScenario = @Scenario;
 

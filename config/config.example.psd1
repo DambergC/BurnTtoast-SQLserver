@@ -34,6 +34,11 @@
     # Leave as $null if BurntToast is already installed or managed by another process.
     InternalPowerShellRepository = $null
 
+    # Optional local path to a packaged PSAppDeployToolkit copy used by DisplayMode AppDeployToolkit.
+    # Point to a version-pinned module manifest, module file, or containing folder.
+    # Leave as $null if AppDeployToolkit mode is not used on this client.
+    AppDeployToolkitModulePath = $null
+
     # Enable encryption for SQL connections.
     Encrypt = $true
 

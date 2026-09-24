@@ -166,6 +166,7 @@ Describe 'ToastSql module' {
         It 'normalizes display mode values case-insensitively' {
             InModuleScope ToastSql {
                 Resolve-ToastDisplayMode -DisplayMode 'wpf' | Should -Be 'Wpf'
+                Resolve-ToastDisplayMode -DisplayMode 'appdeploytoolkit' | Should -Be 'AppDeployToolkit'
             }
         }
 
@@ -261,6 +262,80 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'AppDeployToolkit helper settings' {
+        It 'normalizes AppDeployToolkit protocol buttons and enforces the safe URI allowlist' {
+            InModuleScope ToastSql {
+                $result = Resolve-ToastAppDeployToolkitButtonSettings `
+                    -ButtonText 'Open details' `
+                    -ButtonArguments 'https://example.com/details' `
+                    -ButtonActivationType 'Protocol'
+
+                $result.ButtonText | Should -Be 'Open details'
+                $result.ButtonActivationType | Should -Be 'Protocol'
+                $result.ProtocolUri.AbsoluteUri | Should -Be 'https://example.com/details'
+            }
+        }
+
+        It 'treats AppDeployToolkit buttons without protocol arguments as dismiss actions' {
+            InModuleScope ToastSql {
+                $result = Resolve-ToastAppDeployToolkitButtonSettings `
+                    -ButtonText 'Close prompt' `
+                    -ButtonActivationType 'Protocol'
+
+                $result.ButtonActivationType | Should -Be 'Dismiss'
+                $result.ProtocolUri | Should -Be $null
+            }
+        }
+
+        It 'rejects AppDeployToolkit protocol buttons with unsupported URI schemes' {
+            InModuleScope ToastSql {
+                {
+                    Resolve-ToastAppDeployToolkitButtonSettings `
+                        -ButtonText 'Open file' `
+                        -ButtonArguments 'file:///C:/Windows/System32/notepad.exe' `
+                        -ButtonActivationType 'Protocol'
+                } | Should -Throw '*http, https, or mailto*'
+            }
+        }
+
+        It 'maps AppDeployToolkit prompt results to action and acknowledgement outcomes' {
+            InModuleScope ToastSql {
+                Resolve-ToastAppDeployToolkitPromptSelection -Result 'Left' -ActionButtonText 'Open' | Should -Be 'Action'
+                Resolve-ToastAppDeployToolkitPromptSelection -Result 'Acknowledge' -ActionButtonText 'Open' | Should -Be 'Acknowledge'
+            }
+        }
+
+        It 'surfaces AppDeployToolkit protocol-launch failures instead of treating them as acknowledged' {
+            InModuleScope ToastSql {
+                function Show-ADTInstallationPrompt {
+                    param(
+                        [string]$Message,
+                        [string]$ButtonLeftText,
+                        [string]$ButtonRightText
+                    )
+
+                    'Left'
+                }
+
+                Mock Invoke-ToastProtocolAction { 'boom' }
+
+                try {
+                    {
+                        Show-ToastAppDeployToolkitPrompt `
+                            -MessageId 42 `
+                            -Title 'Title' `
+                            -Body 'Body' `
+                            -ButtonText 'Open' `
+                            -ButtonArguments 'https://example.com' `
+                            -ButtonActivationType 'Protocol'
+                    } | Should -Throw '*boom*'
+                } finally {
+                    Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
     Context 'image input resolution' {
         It 'returns null image values when image input is omitted' {
             InModuleScope ToastSql {
@@ -316,100 +391,110 @@ Describe 'ToastSql module' {
 
     Context 'toast notification parameter building' {
         It 'builds BurntToast parameters from optional toast metadata' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                AppLogoPath = 'C:\Toast\logo.png'
-                HeroImagePath = 'C:\Toast\hero.png'
-                Sound = 'Reminder'
-                IsUrgent = $true
+            InModuleScope ToastSql {
+                $row = [pscustomobject]@{
+                    MessageId = 42
+                    Title = 'Title'
+                    Body = 'Body'
+                    AppLogoPath = 'C:\Toast\logo.png'
+                    HeroImagePath = 'C:\Toast\hero.png'
+                    Sound = 'Reminder'
+                    IsUrgent = $true
+                }
+
+                $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+                $result.Parameters.Text.Count | Should -Be 2
+                $result.Parameters.AppLogo | Should -Be 'C:\Toast\logo.png'
+                $result.Parameters.HeroImage | Should -Be 'C:\Toast\hero.png'
+                $result.Parameters.Sound | Should -Be 'Reminder'
+                $result.Parameters.Urgent | Should -Be $true
             }
-
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
-
-            $result.Parameters.Text.Count | Should -Be 2
-            $result.Parameters.AppLogo | Should -Be 'C:\Toast\logo.png'
-            $result.Parameters.HeroImage | Should -Be 'C:\Toast\hero.png'
-            $result.Parameters.Sound | Should -Be 'Reminder'
-            $result.Parameters.Urgent | Should -Be $true
         }
 
         It 'allows optional sound to be null without strict-mode errors' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                AppLogoPath = $null
-                HeroImagePath = $null
-                IsUrgent = $false
+            InModuleScope ToastSql {
+                $row = [pscustomobject]@{
+                    MessageId = 42
+                    Title = 'Title'
+                    Body = 'Body'
+                    AppLogoPath = $null
+                    HeroImagePath = $null
+                    IsUrgent = $false
+                }
+
+                $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
+
+                $result.Parameters.ContainsKey('Text') | Should -Be $true
+                $result.Parameters.ContainsKey('Sound') | Should -Be $false
             }
-
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo','HeroImage','Sound','Urgent')
-
-            $result.Parameters.ContainsKey('Text') | Should -Be $true
-            $result.Parameters.ContainsKey('Sound') | Should -Be $false
         }
 
         It 'materializes binary image data to a temporary client file' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
-                AppLogoContentType = 'image/png'
-            }
+            InModuleScope ToastSql {
+                $row = [pscustomobject]@{
+                    MessageId = 42
+                    Title = 'Title'
+                    Body = 'Body'
+                    AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                    AppLogoContentType = 'image/png'
+                }
 
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
+                $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
 
-            try {
-                $result.Parameters.AppLogo | Should -Match 'BurnTtoast-SQLserver-'
-                [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
-                (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
-                $result.TemporaryFiles.Count | Should -Be 1
-            } finally {
-                foreach ($temporaryFile in $result.TemporaryFiles) {
-                    Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                try {
+                    $result.Parameters.AppLogo | Should -Match 'BurnTtoast-SQLserver-'
+                    [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
+                    (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
+                    $result.TemporaryFiles.Count | Should -Be 1
+                } finally {
+                    foreach ($temporaryFile in $result.TemporaryFiles) {
+                        Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                    }
                 }
             }
         }
 
         It 'prefers binary image payload over path when both are available' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                AppLogoPath = 'C:\Toast\logo.png'
-                AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
-                AppLogoContentType = 'image/png'
-            }
+            InModuleScope ToastSql {
+                $row = [pscustomobject]@{
+                    MessageId = 42
+                    Title = 'Title'
+                    Body = 'Body'
+                    AppLogoPath = 'C:\Toast\logo.png'
+                    AppLogoBytes = [byte[]](137,80,78,71,13,10,26,10)
+                    AppLogoContentType = 'image/png'
+                }
 
-            $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
+                $result = Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo')
 
-            try {
-                $result.Parameters.AppLogo | Should -Not -Be 'C:\Toast\logo.png'
-                [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
-                (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
-                $result.TemporaryFiles.Count | Should -Be 1
-            } finally {
-                foreach ($temporaryFile in $result.TemporaryFiles) {
-                    Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                try {
+                    $result.Parameters.AppLogo | Should -Not -Be 'C:\Toast\logo.png'
+                    [System.IO.Path]::GetExtension($result.Parameters.AppLogo) | Should -Be '.png'
+                    (Test-Path -LiteralPath $result.Parameters.AppLogo) | Should -Be $true
+                    $result.TemporaryFiles.Count | Should -Be 1
+                } finally {
+                    foreach ($temporaryFile in $result.TemporaryFiles) {
+                        Remove-Item -LiteralPath $temporaryFile -Force -ErrorAction SilentlyContinue
+                    }
                 }
             }
         }
 
         It 'rejects empty binary payloads even when a path is also present' {
-            $row = [pscustomobject]@{
-                MessageId = 42
-                Title = 'Title'
-                Body = 'Body'
-                AppLogoPath = 'C:\Toast\logo.png'
-                AppLogoBytes = [byte[]]@()
-                AppLogoContentType = 'image/png'
-            }
+            InModuleScope ToastSql {
+                $row = [pscustomobject]@{
+                    MessageId = 42
+                    Title = 'Title'
+                    Body = 'Body'
+                    AppLogoPath = 'C:\Toast\logo.png'
+                    AppLogoBytes = [byte[]]@()
+                    AppLogoContentType = 'image/png'
+                }
 
-            { Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo') } |
-                Should -Throw '*empty array*'
+                { Get-ToastNotificationParameters -ToastRow $row -SupportedParameters @('Text','AppLogo') } |
+                    Should -Throw '*empty array*'
+            }
         }
 
         It 'adds a button when supported and available' {
@@ -714,6 +799,126 @@ Describe 'ToastSql module' {
         }
     }
 
+    Context 'lazy dependency handling' {
+        It 'does not try to import or install BurntToast when it is already available' {
+            InModuleScope ToastSql {
+                function New-BurntToastNotification { param([string[]]$Text) }
+
+                Mock Install-Module {}
+                Mock Import-Module {}
+
+                try {
+                    Ensure-ToastNotificationDependencies -DisplayMode 'BurntToast'
+
+                    Should -Invoke Install-Module -Times 0
+                    Should -Invoke Import-Module -Times 0
+                } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'requires an explicit local AppDeployToolkit dependency path when the prompt command is unavailable' {
+            InModuleScope ToastSql {
+                Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $null
+
+                { Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit' } |
+                    Should -Throw '*AppDeployToolkitModulePath*'
+            }
+        }
+
+        It 'imports AppDeployToolkit from the configured local dependency path' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-$([guid]::NewGuid().ToString('N'))"
+                $dependencyFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($dependencyRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '1.0.0'
+    GUID = '11111111-1111-1111-1111-111111111111'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyRoot
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'finds AppDeployToolkit recursively inside a packaged parent folder' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-nested-$([guid]::NewGuid().ToString('N'))"
+                $nestedRoot = Join-Path $dependencyRoot 'PSAppDeployToolkit\\4.1.7'
+                $dependencyFile = Join-Path $nestedRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $nestedRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($nestedRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '4.1.7'
+    GUID = '22222222-2222-2222-2222-222222222222'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyRoot
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'supports a direct AppDeployToolkit manifest path' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-file-$([guid]::NewGuid().ToString('N'))"
+                $dependencyFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($dependencyRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '1.0.0'
+    GUID = '33333333-3333-3333-3333-333333333333'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyFile
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
     Context 'display mode rendering' {
         It 'uses BurntToast rendering when display mode is BurntToast' {
             InModuleScope ToastSql {
@@ -773,6 +978,38 @@ Describe 'ToastSql module' {
                     Should -Invoke New-BurntToastNotification -Times 0
                     Should -Invoke Show-ToastAcknowledgementWindow -Times 1
                 } finally {
+                    Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'routes AppDeployToolkit display mode without invoking BurntToast' {
+            InModuleScope ToastSql {
+                function Show-ADTInstallationPrompt { param([string]$Message) }
+                function New-BurntToastNotification { param([string[]]$Text) }
+
+                Mock Show-ToastAppDeployToolkitPrompt { [pscustomobject]@{ Selection = 'Acknowledge' } }
+                Mock New-BurntToastNotification {}
+                Mock Ensure-ToastNotificationDependencies {}
+
+                try {
+                    $row = [pscustomobject]@{
+                        MessageId = 42
+                        Title = 'Title'
+                        Body = 'Body'
+                        DisplayMode = 'AppDeployToolkit'
+                        ButtonText = 'Open'
+                        ButtonArguments = 'https://example.com'
+                        ButtonActivationType = 'Protocol'
+                    }
+
+                    Invoke-ToastNotification -ToastRow $row
+
+                    Should -Invoke Show-ToastAppDeployToolkitPrompt -Times 1
+                    Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Ensure-ToastNotificationDependencies -Times 0
+                } finally {
+                    Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
                     Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue
                 }
             }
@@ -1568,10 +1805,20 @@ Describe 'ToastSql module' {
         It 'exposes queue/get/record contracts expected by the client scripts' {
             $repeatScriptPath = Join-Path $PSScriptRoot '..\sql\002-toast-design-repeat.sql'
             $buttonScriptPath = Join-Path $PSScriptRoot '..\sql\003-toast-button.sql'
+            $schemaScriptPath = Join-Path $PSScriptRoot '..\sql\001-schema.sql'
+            $installScriptPath = Join-Path $PSScriptRoot '..\sql\Install-BurntToast-SQLserver.sql'
             $serverScriptPath = Join-Path $PSScriptRoot '..\src\Server\Send-ToastMessage.ps1'
+            $taskScriptPath = Join-Path $PSScriptRoot '..\deploy\Register-ToastClientTask.ps1'
+            $clientScriptPath = Join-Path $PSScriptRoot '..\src\Client\Start-ToastClient.ps1'
+            $configPath = Join-Path $PSScriptRoot '..\config\config.example.psd1'
             $repeatScriptText = Get-Content -Path $repeatScriptPath -Raw
             $buttonScriptText = Get-Content -Path $buttonScriptPath -Raw
+            $schemaScriptText = Get-Content -Path $schemaScriptPath -Raw
+            $installScriptText = Get-Content -Path $installScriptPath -Raw
             $serverScriptText = Get-Content -Path $serverScriptPath -Raw
+            $taskScriptText = Get-Content -Path $taskScriptPath -Raw
+            $clientScriptText = Get-Content -Path $clientScriptPath -Raw
+            $configText = Get-Content -Path $configPath -Raw
 
             $repeatScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_RecordToastDelivery"
             $repeatScriptText | Should -Match "@LeaseId uniqueidentifier"
@@ -1599,15 +1846,28 @@ Describe 'ToastSql module' {
             $buttonScriptText | Should -Match "@DisplayMode varchar\(20\) = 'BurntToast'"
             $buttonScriptText | Should -Match "@ResolvedScenario varchar\(20\) = NULL OUTPUT"
             $buttonScriptText | Should -Match "Scenario must be Default, Reminder, Alarm, or IncomingCall"
-            $buttonScriptText | Should -Match "DisplayMode must be BurntToast or Wpf"
+            $buttonScriptText | Should -Match "DisplayMode must be BurntToast, Wpf, or AppDeployToolkit"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD DisplayMode varchar\(20\) NULL"
             $buttonScriptText | Should -Match "m\.Scenario"
             $buttonScriptText | Should -Match "m\.DisplayMode"
             $buttonScriptText | Should -Match "m\.AppLogoBytes"
             $buttonScriptText | Should -Match "m\.HeroImageBytes"
-            $serverScriptText | Should -Match '\[ValidateSet\(''BurntToast'',''Wpf''\)\]\[string\]\$DisplayMode = ''BurntToast'''
+            $schemaScriptText | Should -Match "DisplayMode must be BurntToast, Wpf, or AppDeployToolkit"
+            $serverScriptText | Should -Match '\[ValidateSet\(''BurntToast'',''Wpf'',''AppDeployToolkit''\)\]\[string\]\$DisplayMode = ''BurntToast'''
             $serverScriptText | Should -Match "@DisplayMode = @DisplayMode"
+            $taskScriptText | Should -Match '-STA'
+            $clientScriptText | Should -Match 'Set-ToastClientDependencyOptions'
+            $clientScriptText | Should -Match 'AppDeployToolkitModulePath'
+            $configText | Should -Match 'AppDeployToolkitModulePath'
+            $installScriptText | Should -Match "IF OBJECT_ID\('dbo\.ToastGroup', 'U'\) IS NULL"
+            $installScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_QueueToastMessage"
+            $installScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_GetPendingToast"
+            $installScriptText | Should -Match "CREATE OR ALTER PROCEDURE dbo\.usp_RecordToastDelivery"
+            $installScriptText | Should -Match "CREATE OR ALTER FUNCTION dbo\.ufn_ToastMessageLocal"
+            $installScriptText | Should -Match "CREATE OR ALTER VIEW dbo\.vw_ToastDeliveryLocal"
+            $installScriptText | Should -Match "DisplayMode must be BurntToast, Wpf, or AppDeployToolkit"
+            $installScriptText | Should -Match "CURRENT_TIMEZONE\(\)"
         }
     }
 }
