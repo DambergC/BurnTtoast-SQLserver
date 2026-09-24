@@ -248,7 +248,7 @@ function Resolve-ToastImageInput {
             throw "$ParameterName content type requires image bytes or a file path."
         }
 
-        return @{
+        return [pscustomobject]@{
             ImageBytes = $null
             ContentType = $null
         }
@@ -261,7 +261,7 @@ function Resolve-ToastImageInput {
         }
 
         Test-ToastImageSize -ImageBytes $ImageBytes -ParameterName $ParameterName
-        return @{
+        return [pscustomobject]@{
             ImageBytes = $ImageBytes
             ContentType = $normalizedContentType
         }
@@ -276,7 +276,7 @@ function Resolve-ToastImageInput {
 
     $resolvedImageBytes = [System.IO.File]::ReadAllBytes($resolvedPath)
     Test-ToastImageSize -ImageBytes $resolvedImageBytes -ParameterName $ParameterName
-    return @{
+    return [pscustomobject]@{
         ImageBytes = $resolvedImageBytes
         ContentType = if ($null -ne $normalizedContentType) { $normalizedContentType } else { $inferredContentType }
     }
