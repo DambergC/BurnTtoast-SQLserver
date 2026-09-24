@@ -10,7 +10,11 @@ $script:ToastMaxImageBytes = 5MB
 $script:ToastTemporaryFilePrefix = 'BurnTtoast-SQLserver-'
 $script:ToastTemporaryDirectoryName = 'BurnTtoast-SQLserver'
 $script:ToastTemporaryFileRetentionMinutes = 60
-$script:ToastSupportedDisplayModes = @('BurntToast','Wpf')
+$script:ToastSupportedDisplayModes = @('BurntToast','Wpf','AppDeployToolkit')
+$script:ToastDependencyOptions = @{
+    InternalPowerShellRepository = $null
+    AppDeployToolkitModulePath = $null
+}
 $script:ToastSupportedWpfProtocolSchemes = @('http','https','mailto')
 $script:ToastSupportedScenarios = @('Default','Reminder','Alarm','IncomingCall')
 $script:ToastSqlNullParameterDefinitions = @{
@@ -475,6 +479,273 @@ function Resolve-ToastDisplayMode {
     }
 
     throw "DisplayMode must be one of: $($script:ToastSupportedDisplayModes -join ', ')."
+}
+
+function Set-ToastClientDependencyOptions {
+    [CmdletBinding()]
+    param(
+        [string]$InternalPowerShellRepository,
+        [string]$AppDeployToolkitModulePath
+    )
+
+    $script:ToastDependencyOptions = @{
+        InternalPowerShellRepository = if ([string]::IsNullOrWhiteSpace($InternalPowerShellRepository)) { $null } else { $InternalPowerShellRepository.Trim() }
+        AppDeployToolkitModulePath = if ([string]::IsNullOrWhiteSpace($AppDeployToolkitModulePath)) { $null } else { $AppDeployToolkitModulePath.Trim() }
+    }
+}
+
+function Resolve-ToastDependencyImportPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DependencyPath,
+        [Parameter(Mandatory)][string[]]$CandidateLeafNames
+    )
+
+    if (-not (Test-Path -LiteralPath $DependencyPath)) {
+        throw "Configured dependency path '$DependencyPath' was not found."
+    }
+
+    $resolvedDependencyPath = (Resolve-Path -LiteralPath $DependencyPath -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Path)
+    $dependencyItem = Get-Item -LiteralPath $resolvedDependencyPath -ErrorAction Stop
+    if (-not $dependencyItem.PSIsContainer) {
+        return $resolvedDependencyPath
+    }
+
+    foreach ($candidateLeafName in $CandidateLeafNames) {
+        $candidate = Get-ChildItem -LiteralPath $resolvedDependencyPath -Recurse -File -Filter $candidateLeafName -ErrorAction SilentlyContinue |
+            Sort-Object FullName |
+            Select-Object -First 1
+        if ($null -ne $candidate) {
+            return $candidate.FullName
+        }
+    }
+
+    throw "Configured dependency path '$resolvedDependencyPath' does not contain any of: $($CandidateLeafNames -join ', ')."
+}
+
+function Get-ToastAppDeployToolkitPromptCommand {
+    [CmdletBinding()]
+    param()
+
+    foreach ($commandName in @('Show-ADTInstallationPrompt','Show-InstallationPrompt')) {
+        $command = Get-Command -Name $commandName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $command) {
+            return $command
+        }
+    }
+
+    return $null
+}
+
+function Ensure-ToastNotificationDependencies {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DisplayMode
+    )
+
+    $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $DisplayMode
+    switch ($resolvedDisplayMode) {
+        'BurntToast' {
+            if ($null -ne (Get-Command -Name 'New-BurntToastNotification' -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+                return
+            }
+
+            if ($script:ToastDependencyOptions.InternalPowerShellRepository) {
+                Install-Module BurntToast -Repository $script:ToastDependencyOptions.InternalPowerShellRepository -Scope CurrentUser -Force
+            } else {
+                Write-Warning 'BurntToast is not installed. Install it from your approved repository.'
+            }
+
+            Import-Module BurntToast -ErrorAction Stop
+            return
+        }
+        'AppDeployToolkit' {
+            if ($null -ne (Get-ToastAppDeployToolkitPromptCommand)) {
+                return
+            }
+
+            if (-not $script:ToastDependencyOptions.AppDeployToolkitModulePath) {
+                throw "DisplayMode 'AppDeployToolkit' requires a locally packaged PSAppDeployToolkit copy. Configure AppDeployToolkitModulePath to a version-pinned manifest, bootstrap script, or containing folder before starting the client."
+            }
+
+            $importPath = Resolve-ToastDependencyImportPath `
+                -DependencyPath $script:ToastDependencyOptions.AppDeployToolkitModulePath `
+                -CandidateLeafNames @('PSAppDeployToolkit.psd1','PSAppDeployToolkit.psm1','AppDeployToolkitMain.ps1','AppDeployToolkitMain.psm1')
+            Import-Module $importPath -ErrorAction Stop
+
+            if ($null -eq (Get-ToastAppDeployToolkitPromptCommand)) {
+                throw "AppDeployToolkit dependency '$importPath' did not expose Show-ADTInstallationPrompt or Show-InstallationPrompt."
+            }
+        }
+    }
+}
+
+function Resolve-ToastAppDeployToolkitButtonSettings {
+    [CmdletBinding()]
+    param(
+        [string]$ButtonText,
+        [string]$ButtonArguments,
+        [string]$ButtonActivationType
+    )
+
+    $buttonSettings = Resolve-ToastWpfButtonSettings `
+        -ButtonText $ButtonText `
+        -ButtonArguments $ButtonArguments `
+        -ButtonActivationType $ButtonActivationType
+    $protocolUri = $null
+
+    if ($buttonSettings.ButtonActivationType -eq 'Protocol') {
+        $protocolUri = Resolve-ToastWpfProtocolUri -ButtonArguments $buttonSettings.ButtonArguments
+        if ($null -eq $protocolUri) {
+            throw 'AppDeployToolkit protocol buttons support only absolute http, https, or mailto URIs.'
+        }
+    }
+
+    return [pscustomobject]@{
+        ButtonText = $buttonSettings.ButtonText
+        ButtonArguments = $buttonSettings.ButtonArguments
+        ButtonActivationType = $buttonSettings.ButtonActivationType
+        ProtocolUri = $protocolUri
+    }
+}
+
+function Resolve-ToastAppDeployToolkitPromptSelection {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Result,
+        [string]$ActionButtonText,
+        [string]$AcknowledgeButtonText = 'Acknowledge'
+    )
+
+    if ($null -eq $Result) {
+        return 'Acknowledge'
+    }
+
+    $valuesToInspect = [System.Collections.Generic.List[string]]::new()
+    if ($Result -is [string]) {
+        $valuesToInspect.Add($Result)
+    }
+
+    foreach ($propertyName in @('Button','SelectedButton','Selection','Result','Value')) {
+        $property = $Result.PSObject.Properties[$propertyName]
+        if ($null -ne $property -and $null -ne $property.Value) {
+            $valuesToInspect.Add([string]$property.Value)
+        }
+    }
+
+    if ($Result -is [int] -or $Result -is [long] -or $Result -is [short] -or $Result -is [byte]) {
+        $numericResult = [int]$Result
+        if (-not [string]::IsNullOrWhiteSpace($ActionButtonText) -and $numericResult -eq 0) {
+            return 'Action'
+        }
+
+        if ($numericResult -eq 1) {
+            return 'Acknowledge'
+        }
+    }
+
+    foreach ($value in $valuesToInspect) {
+        $normalizedValue = if ([string]::IsNullOrWhiteSpace($value)) { $null } else { $value.Trim() }
+        if ($null -eq $normalizedValue) {
+            continue
+        }
+
+        if (
+            -not [string]::IsNullOrWhiteSpace($ActionButtonText) -and (
+                $normalizedValue.Equals($ActionButtonText, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $normalizedValue.Equals('Left', [System.StringComparison]::OrdinalIgnoreCase) -or
+                $normalizedValue.Equals('ButtonLeft', [System.StringComparison]::OrdinalIgnoreCase) -or
+                $normalizedValue.Equals('Action', [System.StringComparison]::OrdinalIgnoreCase)
+            )
+        ) {
+            return 'Action'
+        }
+
+        if (
+            $normalizedValue.Equals($AcknowledgeButtonText, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $normalizedValue.Equals('Right', [System.StringComparison]::OrdinalIgnoreCase) -or
+            $normalizedValue.Equals('ButtonRight', [System.StringComparison]::OrdinalIgnoreCase) -or
+            $normalizedValue.Equals('OK', [System.StringComparison]::OrdinalIgnoreCase) -or
+            $normalizedValue.Equals('Acknowledge', [System.StringComparison]::OrdinalIgnoreCase)
+        ) {
+            return 'Acknowledge'
+        }
+    }
+
+    return 'Acknowledge'
+}
+
+function Show-ToastAppDeployToolkitPrompt {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][long]$MessageId,
+        [Parameter(Mandatory)][string]$Title,
+        [Parameter(Mandatory)][string]$Body,
+        [string]$ButtonText,
+        [string]$ButtonArguments,
+        [string]$ButtonActivationType
+    )
+
+    $currentApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
+    if ($currentApartmentState -ne [System.Threading.ApartmentState]::STA) {
+        throw "AppDeployToolkit display mode requires an STA thread. Start the client in an STA PowerShell host. Current apartment state: $currentApartmentState."
+    }
+
+    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+    $promptCommand = Get-ToastAppDeployToolkitPromptCommand
+    if ($null -eq $promptCommand) {
+        throw "AppDeployToolkit display mode could not find Show-ADTInstallationPrompt or Show-InstallationPrompt after dependency loading."
+    }
+
+    $buttonSettings = Resolve-ToastAppDeployToolkitButtonSettings `
+        -ButtonText $ButtonText `
+        -ButtonArguments $ButtonArguments `
+        -ButtonActivationType $ButtonActivationType
+
+    $messageText = if ([string]::IsNullOrWhiteSpace($Title)) {
+        [string]$Body
+    } elseif ([string]::IsNullOrWhiteSpace($Body)) {
+        [string]$Title
+    } else {
+        "$Title`r`n`r`n$Body"
+    }
+
+    $acknowledgeButtonText = 'Acknowledge'
+    $promptParameters = @{
+        Message = $messageText
+        ButtonRightText = $acknowledgeButtonText
+    }
+
+    if ($promptCommand.Parameters.Keys -contains 'Title' -and -not [string]::IsNullOrWhiteSpace($Title)) {
+        $promptParameters['Title'] = [string]$Title
+        $promptParameters['Message'] = [string]$Body
+    }
+
+    if ($promptCommand.Parameters.Keys -contains 'Icon') {
+        $promptParameters['Icon'] = 'Information'
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($buttonSettings.ButtonText)) {
+        $promptParameters['ButtonLeftText'] = [string]$buttonSettings.ButtonText
+    }
+
+    $result = & $promptCommand @promptParameters
+    $selection = Resolve-ToastAppDeployToolkitPromptSelection `
+        -Result $result `
+        -ActionButtonText $buttonSettings.ButtonText `
+        -AcknowledgeButtonText $acknowledgeButtonText
+
+    if ($selection -eq 'Action' -and $buttonSettings.ButtonActivationType -eq 'Protocol') {
+        $protocolActionError = Invoke-ToastWpfProtocolAction -ButtonArguments $buttonSettings.ProtocolUri.AbsoluteUri
+        if (-not [string]::IsNullOrWhiteSpace($protocolActionError)) {
+            throw "Failed to open AppDeployToolkit action '$($buttonSettings.ProtocolUri.AbsoluteUri)' for MessageId ${MessageId}: $protocolActionError"
+        }
+    }
+
+    return [pscustomobject]@{
+        Selection = $selection
+        ButtonActivationType = $buttonSettings.ButtonActivationType
+    }
 }
 
 function Get-ToastWpfBitmapImage {
@@ -1027,6 +1298,20 @@ function Invoke-ToastNotification {
     $displayModeValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'DisplayMode'
     $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $displayModeValue
 
+    Ensure-ToastNotificationDependencies -DisplayMode $resolvedDisplayMode
+
+    if ($resolvedDisplayMode -eq 'AppDeployToolkit') {
+        Show-ToastAppDeployToolkitPrompt `
+            -MessageId (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') `
+            -Title ([string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Title')) `
+            -Body ([string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Body')) `
+            -ButtonText ([string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonText')) `
+            -ButtonArguments ([string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonArguments')) `
+            -ButtonActivationType ([string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'ButtonActivationType')) | Out-Null
+
+        return
+    }
+
     if ($resolvedDisplayMode -eq 'Wpf') {
         $title = [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Title')
         $body = [string](Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'Body')
@@ -1393,4 +1678,4 @@ function Invoke-ToastSql {
     }
 }
 
-Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastScenario,Resolve-ToastDisplayMode,Resolve-ToastImageInput,Get-ToastNotificationSupportedParameters,Invoke-ToastNotification,Show-ToastAcknowledgementWindow
+Export-ModuleMember -Function Import-ToastConfig,Test-ToastSqlPort,Get-ToastConnectionString,Get-ToastSqlCredential,Invoke-ToastSql,Resolve-ToastRepeatSettings,Resolve-ToastButtonSettings,Resolve-ToastScenario,Resolve-ToastDisplayMode,Resolve-ToastImageInput,Get-ToastNotificationSupportedParameters,Invoke-ToastNotification,Show-ToastAcknowledgementWindow,Set-ToastClientDependencyOptions
