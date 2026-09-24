@@ -142,7 +142,7 @@ Viktiga inställningar:
   - gör att `BurntToast` inte längre måste installeras vid klientstart om inga BurntToast-meddelanden visas
 - `AppDeployToolkitModulePath`
   - lokal sökväg till en versionslåst PSAppDeployToolkit/AppDeployToolkit-paketering
-  - kan peka på manifestfil, bootstrapscript eller en katalog som innehåller exempelvis `PSAppDeployToolkit.psd1` eller `AppDeployToolkitMain.ps1`
+  - kan peka på manifestfil, modulfil eller en katalog som innehåller exempelvis `PSAppDeployToolkit.psd1` eller `PSAppDeployToolkit.psm1`
   - används bara när klienten faktiskt behöver visa `DisplayMode AppDeployToolkit`
 
 ## Projektöversikt

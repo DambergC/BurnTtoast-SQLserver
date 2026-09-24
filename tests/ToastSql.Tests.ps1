@@ -304,6 +304,36 @@ Describe 'ToastSql module' {
                 Resolve-ToastAppDeployToolkitPromptSelection -Result 'Acknowledge' -ActionButtonText 'Open' | Should -Be 'Acknowledge'
             }
         }
+
+        It 'surfaces AppDeployToolkit protocol-launch failures instead of treating them as acknowledged' {
+            InModuleScope ToastSql {
+                function Show-ADTInstallationPrompt {
+                    param(
+                        [string]$Message,
+                        [string]$ButtonLeftText,
+                        [string]$ButtonRightText
+                    )
+
+                    'Left'
+                }
+
+                Mock Invoke-ToastProtocolAction { 'boom' }
+
+                try {
+                    {
+                        Show-ToastAppDeployToolkitPrompt `
+                            -MessageId 42 `
+                            -Title 'Title' `
+                            -Body 'Body' `
+                            -ButtonText 'Open' `
+                            -ButtonArguments 'https://example.com' `
+                            -ButtonActivationType 'Protocol'
+                    } | Should -Throw '*boom*'
+                } finally {
+                    Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'image input resolution' {
@@ -796,6 +826,97 @@ Describe 'ToastSql module' {
                     Should -Throw '*AppDeployToolkitModulePath*'
             }
         }
+
+        It 'imports AppDeployToolkit from the configured local dependency path' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-$([guid]::NewGuid().ToString('N'))"
+                $dependencyFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($dependencyRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '1.0.0'
+    GUID = '11111111-1111-1111-1111-111111111111'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyRoot
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'finds AppDeployToolkit recursively inside a packaged parent folder' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-nested-$([guid]::NewGuid().ToString('N'))"
+                $nestedRoot = Join-Path $dependencyRoot 'PSAppDeployToolkit\\4.1.7'
+                $dependencyFile = Join-Path $nestedRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $nestedRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($nestedRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '4.1.7'
+    GUID = '22222222-2222-2222-2222-222222222222'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyRoot
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'supports a direct AppDeployToolkit manifest path' {
+            InModuleScope ToastSql {
+                $dependencyRoot = Join-Path ([System.IO.Path]::GetTempPath()) "toastsql-adt-file-$([guid]::NewGuid().ToString('N'))"
+                $dependencyFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psd1'
+                $moduleFile = Join-Path $dependencyRoot 'PSAppDeployToolkit.psm1'
+
+                try {
+                    [void][System.IO.Directory]::CreateDirectory($dependencyRoot)
+                    @'
+function Show-InstallationPrompt {
+    param([string]$Message)
+}
+'@ | Set-Content -Path $moduleFile
+                    @"
+@{
+    RootModule = 'PSAppDeployToolkit.psm1'
+    ModuleVersion = '1.0.0'
+    GUID = '33333333-3333-3333-3333-333333333333'
+}
+"@ | Set-Content -Path $dependencyFile
+                    Set-ToastClientDependencyOptions -InternalPowerShellRepository $null -AppDeployToolkitModulePath $dependencyFile
+
+                    Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
+                } finally {
+                    Remove-Module PSAppDeployToolkit -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath $dependencyRoot -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
 
     Context 'display mode rendering' {
@@ -869,6 +990,7 @@ Describe 'ToastSql module' {
 
                 Mock Show-ToastAppDeployToolkitPrompt { [pscustomobject]@{ Selection = 'Acknowledge' } }
                 Mock New-BurntToastNotification {}
+                Mock Ensure-ToastNotificationDependencies {}
 
                 try {
                     $row = [pscustomobject]@{
@@ -885,6 +1007,7 @@ Describe 'ToastSql module' {
 
                     Should -Invoke Show-ToastAppDeployToolkitPrompt -Times 1
                     Should -Invoke New-BurntToastNotification -Times 0
+                    Should -Invoke Ensure-ToastNotificationDependencies -Times 0
                 } finally {
                     Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
                     Remove-Item Function:\New-BurntToastNotification -ErrorAction SilentlyContinue

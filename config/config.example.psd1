@@ -35,7 +35,7 @@
     InternalPowerShellRepository = $null
 
     # Optional local path to a packaged PSAppDeployToolkit copy used by DisplayMode AppDeployToolkit.
-    # Point to a version-pinned module manifest, bootstrap script, or containing folder.
+    # Point to a version-pinned module manifest, module file, or containing folder.
     # Leave as $null if AppDeployToolkit mode is not used on this client.
     AppDeployToolkitModulePath = $null
 

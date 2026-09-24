@@ -512,12 +512,23 @@ function Resolve-ToastDependencyImportPath {
     }
 
     foreach ($candidateLeafName in $CandidateLeafNames) {
-        $candidate = Get-ChildItem -LiteralPath $resolvedDependencyPath -Recurse -File -Filter $candidateLeafName -ErrorAction SilentlyContinue |
-            Sort-Object FullName |
-            Select-Object -First 1
-        if ($null -ne $candidate) {
-            return $candidate.FullName
+        $topLevelCandidatePath = Join-Path $resolvedDependencyPath $candidateLeafName
+        if (Test-Path -LiteralPath $topLevelCandidatePath -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $topLevelCandidatePath -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Path)
         }
+    }
+
+    $candidatePriority = @{}
+    for ($index = 0; $index -lt $CandidateLeafNames.Count; $index++) {
+        $candidatePriority[$CandidateLeafNames[$index]] = $index
+    }
+
+    $candidate = Get-ChildItem -LiteralPath $resolvedDependencyPath -Recurse -Depth 3 -File -ErrorAction SilentlyContinue |
+        Where-Object { $CandidateLeafNames -contains $_.Name } |
+        Sort-Object @{ Expression = { ($_.FullName -split '[\\/]').Count } }, @{ Expression = { $candidatePriority[$_.Name] } }, FullName |
+        Select-Object -First 1
+    if ($null -ne $candidate) {
+        return $candidate.FullName
     }
 
     throw "Configured dependency path '$resolvedDependencyPath' does not contain any of: $($CandidateLeafNames -join ', ')."
@@ -570,8 +581,8 @@ function Ensure-ToastNotificationDependencies {
 
             $importPath = Resolve-ToastDependencyImportPath `
                 -DependencyPath $script:ToastDependencyOptions.AppDeployToolkitModulePath `
-                -CandidateLeafNames @('PSAppDeployToolkit.psd1','PSAppDeployToolkit.psm1','AppDeployToolkitMain.ps1','AppDeployToolkitMain.psm1')
-            Import-Module $importPath -ErrorAction Stop
+                -CandidateLeafNames @('PSAppDeployToolkit.psd1','PSAppDeployToolkit.psm1','AppDeployToolkitMain.psm1')
+            Import-Module -Name $importPath -ErrorAction Stop
 
             if ($null -eq (Get-ToastAppDeployToolkitPromptCommand)) {
                 throw "AppDeployToolkit dependency '$importPath' did not expose Show-ADTInstallationPrompt or Show-InstallationPrompt."
@@ -686,11 +697,6 @@ function Show-ToastAppDeployToolkitPrompt {
         [string]$ButtonActivationType
     )
 
-    $currentApartmentState = [System.Threading.Thread]::CurrentThread.GetApartmentState()
-    if ($currentApartmentState -ne [System.Threading.ApartmentState]::STA) {
-        throw "AppDeployToolkit display mode requires an STA thread. Start the client in an STA PowerShell host. Current apartment state: $currentApartmentState."
-    }
-
     Ensure-ToastNotificationDependencies -DisplayMode 'AppDeployToolkit'
     $promptCommand = Get-ToastAppDeployToolkitPromptCommand
     if ($null -eq $promptCommand) {
@@ -718,32 +724,54 @@ function Show-ToastAppDeployToolkitPrompt {
 
     if ($promptCommand.Parameters.Keys -contains 'Title' -and -not [string]::IsNullOrWhiteSpace($Title)) {
         $promptParameters['Title'] = [string]$Title
-        $promptParameters['Message'] = [string]$Body
+        if (-not [string]::IsNullOrWhiteSpace($Body)) {
+            $promptParameters['Message'] = [string]$Body
+        }
     }
 
-    if ($promptCommand.Parameters.Keys -contains 'Icon') {
-        $promptParameters['Icon'] = 'Information'
+    foreach ($iconMapping in @(
+        @{ ParameterName = 'Icon'; Value = 'Information' },
+        @{ ParameterName = 'IconType'; Value = 'Information' },
+        @{ ParameterName = 'MessageBoxIcon'; Value = 64 }
+    )) {
+        if ($promptCommand.Parameters.Keys -contains $iconMapping.ParameterName) {
+            $promptParameters[$iconMapping.ParameterName] = $iconMapping.Value
+            break
+        }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($buttonSettings.ButtonText)) {
         $promptParameters['ButtonLeftText'] = [string]$buttonSettings.ButtonText
     }
 
-    $result = & $promptCommand @promptParameters
+    try {
+        $result = & $promptCommand @promptParameters
+    } catch {
+        throw [System.Exception]::new("AppDeployToolkit prompt execution failed for MessageId ${MessageId}.", $_.Exception)
+    }
     $selection = Resolve-ToastAppDeployToolkitPromptSelection `
         -Result $result `
         -ActionButtonText $buttonSettings.ButtonText `
         -AcknowledgeButtonText $acknowledgeButtonText
 
     if ($selection -eq 'Action' -and $buttonSettings.ButtonActivationType -eq 'Protocol') {
-        $protocolActionError = Invoke-ToastWpfProtocolAction -ButtonArguments $buttonSettings.ProtocolUri.AbsoluteUri
+        $protocolActionError = Invoke-ToastProtocolAction -ButtonArguments $buttonSettings.ProtocolUri.AbsoluteUri
         if (-not [string]::IsNullOrWhiteSpace($protocolActionError)) {
             throw "Failed to open AppDeployToolkit action '$($buttonSettings.ProtocolUri.AbsoluteUri)' for MessageId ${MessageId}: $protocolActionError"
         }
     }
 
+    $resultType = switch ($selection) {
+        'Action' {
+            if ($buttonSettings.ButtonActivationType -eq 'Dismiss') { 'Dismiss' } else { 'Action' }
+            break
+        }
+        default { 'Acknowledge' }
+    }
+
     return [pscustomobject]@{
         Selection = $selection
+        ResultType = $resultType
         ButtonActivationType = $buttonSettings.ButtonActivationType
     }
 }
@@ -832,7 +860,7 @@ function Resolve-ToastWpfProtocolUri {
     return $protocolUri
 }
 
-function Invoke-ToastWpfProtocolAction {
+function Invoke-ToastProtocolAction {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ButtonArguments
@@ -844,6 +872,15 @@ function Invoke-ToastWpfProtocolAction {
     } catch {
         return $_.Exception.Message
     }
+}
+
+function Invoke-ToastWpfProtocolAction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ButtonArguments
+    )
+
+    return Invoke-ToastProtocolAction -ButtonArguments $ButtonArguments
 }
 
 function Resolve-ToastWpfCloseBehavior {
@@ -1298,8 +1335,6 @@ function Invoke-ToastNotification {
     $displayModeValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'DisplayMode'
     $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $displayModeValue
 
-    Ensure-ToastNotificationDependencies -DisplayMode $resolvedDisplayMode
-
     if ($resolvedDisplayMode -eq 'AppDeployToolkit') {
         Show-ToastAppDeployToolkitPrompt `
             -MessageId (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') `
@@ -1344,6 +1379,7 @@ function Invoke-ToastNotification {
         Write-Warning $warning
     }
 
+    Ensure-ToastNotificationDependencies -DisplayMode $resolvedDisplayMode
     $toastParameters = $toastDetails.Parameters
     try {
         New-BurntToastNotification @toastParameters

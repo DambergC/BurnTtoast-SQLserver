@@ -101,7 +101,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastD
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastMessage') AND name = 'IX_ToastMessage_Polling')
     CREATE INDEX IX_ToastMessage_Polling
         ON dbo.ToastMessage(MessageId)
-        INCLUDE (IsCancelled, ExpiresUtc, Title, Body, AppLogoPath, HeroImagePath, Sound, IsUrgent, RepeatIntervalSeconds, RepeatCount);
+        INCLUDE (
+            IsCancelled, ExpiresUtc, Title, Body,
+            AppLogoPath, HeroImagePath, AppLogoBytes, AppLogoContentType, HeroImageBytes, HeroImageContentType,
+            Sound, IsUrgent, RepeatIntervalSeconds, RepeatCount,
+            ButtonText, ButtonArguments, ButtonActivationType, Scenario, DisplayMode
+        );
 GO
 
 -------------------------------------------------------------
@@ -124,9 +129,9 @@ BEGIN CATCH
     SET @ServerLocalTimeZone = NULL;
 END CATCH;
 
--- CURRENT_TIMEZONE() kan returnera ett lokalt visningsnamn, t.ex.
+-- CURRENT_TIMEZONE() can return a local display name, for example:
 -- "(UTC+01:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna".
--- AT TIME ZONE kräver däremot ett giltigt SQL Server tidszonsnamn.
+-- AT TIME ZONE requires a valid SQL Server time zone name instead.
 IF @ServerLocalTimeZone IS NOT NULL
 BEGIN
     IF NOT EXISTS
@@ -140,7 +145,7 @@ BEGIN
     END;
 END;
 
--- Fallback: matcha giltig zon via aktuell UTC-offset och DST-status.
+-- Fallback: match a valid zone by current UTC offset and DST status.
 IF @ServerLocalTimeZone IS NULL
 BEGIN
     SELECT TOP (1)
@@ -152,7 +157,7 @@ BEGIN
         name;
 END;
 
--- Sista fallback om ingen zon kan bestämmas.
+-- Final fallback when no time zone can be resolved.
 IF @ServerLocalTimeZone IS NULL
 BEGIN
     SET @ServerLocalTimeZone = N'UTC';
@@ -311,178 +316,6 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ToastM
 
 GO
 
-CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
-    @GroupName nvarchar(128),
-    @Title nvarchar(200),
-    @Body nvarchar(4000),
-    @ExpiresUtc datetime2(0) = NULL,
-    @AppLogoPath nvarchar(1024) = NULL,
-    @HeroImagePath nvarchar(1024) = NULL,
-    @AppLogoBytes varbinary(max) = NULL,
-    @AppLogoContentType varchar(100) = NULL,
-    @HeroImageBytes varbinary(max) = NULL,
-    @HeroImageContentType varchar(100) = NULL,
-    @Sound varchar(20) = NULL,
-    @IsUrgent bit = 0,
-    @RepeatIntervalSeconds int = NULL,
-    @RepeatCount int = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SET XACT_ABORT ON;
-
-    IF (@RepeatIntervalSeconds IS NULL AND @RepeatCount IS NOT NULL) OR (@RepeatIntervalSeconds IS NOT NULL AND @RepeatCount IS NULL)
-        THROW 50002, 'RepeatIntervalSeconds and RepeatCount must both be provided for repeating messages.', 1;
-
-    IF @RepeatIntervalSeconds IS NOT NULL AND @RepeatIntervalSeconds < 1
-        THROW 50003, 'RepeatIntervalSeconds must be greater than zero.', 1;
-
-    IF @RepeatCount IS NOT NULL AND @RepeatCount < 2
-        THROW 50004, 'RepeatCount must be 2 or greater because it includes the first display.', 1;
-
-    SET @AppLogoContentType = LOWER(NULLIF(LTRIM(RTRIM(@AppLogoContentType)), ''));
-    SET @HeroImageContentType = LOWER(NULLIF(LTRIM(RTRIM(@HeroImageContentType)), ''));
-
-    IF (@AppLogoBytes IS NULL AND @AppLogoContentType IS NOT NULL) OR (@AppLogoBytes IS NOT NULL AND @AppLogoContentType IS NULL)
-        THROW 50014, 'AppLogoBytes and AppLogoContentType must both be provided for binary app-logo images.', 1;
-
-    IF (@HeroImageBytes IS NULL AND @HeroImageContentType IS NOT NULL) OR (@HeroImageBytes IS NOT NULL AND @HeroImageContentType IS NULL)
-        THROW 50015, 'HeroImageBytes and HeroImageContentType must both be provided for binary hero images.', 1;
-
-    IF @AppLogoContentType = 'image/jpg'
-        SET @AppLogoContentType = 'image/jpeg';
-
-    IF @HeroImageContentType = 'image/jpg'
-        SET @HeroImageContentType = 'image/jpeg';
-
-    IF @AppLogoContentType IS NOT NULL AND @AppLogoContentType NOT IN ('image/png','image/jpeg','image/gif','image/bmp')
-        THROW 50016, 'AppLogoContentType must be image/png, image/jpeg, image/gif, or image/bmp.', 1;
-
-    IF @HeroImageContentType IS NOT NULL AND @HeroImageContentType NOT IN ('image/png','image/jpeg','image/gif','image/bmp')
-        THROW 50017, 'HeroImageContentType must be image/png, image/jpeg, image/gif, or image/bmp.', 1;
-
-    IF @AppLogoBytes IS NOT NULL AND DATALENGTH(@AppLogoBytes) > 5242880
-        THROW 50018, 'AppLogoBytes exceeds the maximum supported image size of 5242880 bytes.', 1;
-
-    IF @AppLogoBytes IS NOT NULL AND DATALENGTH(@AppLogoBytes) = 0
-        THROW 50020, 'AppLogoBytes must not be empty.', 1;
-
-    IF @HeroImageBytes IS NOT NULL AND DATALENGTH(@HeroImageBytes) > 5242880
-        THROW 50019, 'HeroImageBytes exceeds the maximum supported image size of 5242880 bytes.', 1;
-
-    IF @HeroImageBytes IS NOT NULL AND DATALENGTH(@HeroImageBytes) = 0
-        THROW 50021, 'HeroImageBytes must not be empty.', 1;
-
-    DECLARE @GroupId int = (SELECT GroupId FROM dbo.ToastGroup WHERE GroupName = @GroupName AND IsActive = 1);
-    IF @GroupId IS NULL THROW 50001, 'Active toast group was not found.', 1;
-
-    BEGIN TRAN;
-
-    INSERT dbo.ToastMessage(
-        GroupId,
-        Title,
-        Body,
-        ExpiresUtc,
-        AppLogoPath,
-        HeroImagePath,
-        AppLogoBytes,
-        AppLogoContentType,
-        HeroImageBytes,
-        HeroImageContentType,
-        Sound,
-        IsUrgent,
-        RepeatIntervalSeconds,
-        RepeatCount
-    )
-    VALUES(
-        @GroupId,
-        @Title,
-        @Body,
-        @ExpiresUtc,
-        NULLIF(@AppLogoPath, ''),
-        NULLIF(@HeroImagePath, ''),
-        @AppLogoBytes,
-        @AppLogoContentType,
-        @HeroImageBytes,
-        @HeroImageContentType,
-        NULLIF(@Sound, ''),
-        ISNULL(@IsUrgent, 0),
-        @RepeatIntervalSeconds,
-        @RepeatCount
-    );
-
-    DECLARE @MessageId bigint = SCOPE_IDENTITY();
-
-    INSERT dbo.ToastDelivery(MessageId, ClientId)
-        SELECT @MessageId, ClientId
-        FROM dbo.ToastClientGroup
-        WHERE GroupId = @GroupId;
-
-    COMMIT;
-
-    SELECT @MessageId AS MessageId;
-END;
-GO
-
-CREATE OR ALTER PROCEDURE dbo.usp_GetPendingToast
-    @ComputerName nvarchar(256)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    SET XACT_ABORT ON;
-
-    DECLARE @ClientId int = (SELECT ClientId FROM dbo.ToastClient WHERE ComputerName = @ComputerName AND IsActive = 1);
-    IF @ClientId IS NULL RETURN;
-
-    DECLARE @Now datetime2(0) = SYSDATETIME();
-    DECLARE @LeaseSeconds int = 120;
-
-    UPDATE dbo.ToastClient
-    SET LastSeenUtc = @Now
-    WHERE ClientId = @ClientId;
-
-    ;WITH DueMessages AS (
-        SELECT TOP (20) d.ClientId, d.MessageId
-        FROM dbo.ToastDelivery d WITH (UPDLOCK, READPAST, ROWLOCK)
-        INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
-        WHERE d.ClientId = @ClientId
-          AND m.IsCancelled = 0
-          AND (m.ExpiresUtc IS NULL OR m.ExpiresUtc > @Now)
-          AND d.NextShowUtc <= @Now
-          AND (
-                d.Status = 'Pending'
-                OR (d.Status = 'InProgress' AND d.LeaseExpiresUtc IS NOT NULL AND d.LeaseExpiresUtc <= @Now)
-              )
-        ORDER BY d.MessageId
-    )
-    UPDATE d
-    SET Status = 'InProgress',
-        LeaseId = NEWID(),
-        LeaseExpiresUtc = DATEADD(second, @LeaseSeconds, @Now),
-        ErrorMessage = NULL
-    OUTPUT inserted.MessageId,
-           inserted.LeaseId,
-           m.Title,
-           m.Body,
-           m.AppLogoPath,
-           m.HeroImagePath,
-           m.AppLogoBytes,
-           m.AppLogoContentType,
-           m.HeroImageBytes,
-           m.HeroImageContentType,
-           m.Sound,
-           m.IsUrgent,
-           m.RepeatIntervalSeconds,
-           m.RepeatCount,
-           m.ExpiresUtc,
-           inserted.ShowCount
-    FROM dbo.ToastDelivery d
-    INNER JOIN DueMessages x ON x.ClientId = d.ClientId AND x.MessageId = d.MessageId
-    INNER JOIN dbo.ToastMessage m ON m.MessageId = d.MessageId
-    WHERE d.ClientId = @ClientId;
-END;
-GO
-
 CREATE OR ALTER PROCEDURE dbo.usp_RecordToastDelivery
     @ComputerName nvarchar(256),
     @MessageId bigint,
@@ -621,7 +454,7 @@ IF COL_LENGTH('dbo.ToastMessage', 'Scenario') IS NULL
 IF COL_LENGTH('dbo.ToastMessage', 'DisplayMode') IS NULL
     ALTER TABLE dbo.ToastMessage ADD DisplayMode varchar(20) NULL;
 
-    GO
+GO
 
 WHILE 1 = 1
 BEGIN
@@ -922,7 +755,7 @@ BEGIN
 END;
 
 IF @DefaultLocalTimeZone IS NULL
-    THROW 50014, 'Unable to resolve SQL Server local Windows time zone name before local-time reporting setup.', 1;
+    SET @DefaultLocalTimeZone = N'UTC';
 DECLARE @EscapedDefaultLocalTimeZone nvarchar(256) = REPLACE(@DefaultLocalTimeZone, '''', '''''');
 
 DECLARE @Sql1 nvarchar(max) = N'
