@@ -679,7 +679,6 @@ function Resolve-ToastAppDeployToolkitPromptSelection {
                 $normalizedValue.Equals('ButtonLeft', [System.StringComparison]::OrdinalIgnoreCase) -or
                 $normalizedValue.Equals('Action', [System.StringComparison]::OrdinalIgnoreCase) -or
                 $normalizedValue.Equals('Primary', [System.StringComparison]::OrdinalIgnoreCase) -or
-                $normalizedValue.Equals('OK', [System.StringComparison]::OrdinalIgnoreCase) -or
                 $normalizedValue.Equals('0', [System.StringComparison]::OrdinalIgnoreCase)
             )
         ) {
@@ -690,6 +689,7 @@ function Resolve-ToastAppDeployToolkitPromptSelection {
             $normalizedValue.Equals($AcknowledgeButtonText, [System.StringComparison]::OrdinalIgnoreCase) -or
             $normalizedValue.Equals('Right', [System.StringComparison]::OrdinalIgnoreCase) -or
             $normalizedValue.Equals('ButtonRight', [System.StringComparison]::OrdinalIgnoreCase) -or
+            $normalizedValue.Equals('OK', [System.StringComparison]::OrdinalIgnoreCase) -or
             $normalizedValue.Equals('Acknowledge', [System.StringComparison]::OrdinalIgnoreCase) -or
             $normalizedValue.Equals('1', [System.StringComparison]::OrdinalIgnoreCase)
         ) {
