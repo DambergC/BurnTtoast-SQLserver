@@ -230,7 +230,7 @@ Klienten:
   - applicerar repeat-/lease-logik
   - applicerar knapp-/display-mode-stöd
   - applicerar lokal tidsrapportering
-  - normaliserar `DisplayMode` till `AppDeployToolkit` för befintliga rader vid uppgradering
+  - normaliserar `DisplayMode` till `AppDeployToolkit` för `NULL`-värden och fortfarande köade/pending rader vid uppgradering
 
 ### Legacy / stegvis uppgradering
 
@@ -250,7 +250,7 @@ Praktiska följder:
 
 - klientkonfigurationen använder inte längre `InternalPowerShellRepository`
 - nya köade meddelanden ska använda `DisplayMode AppDeployToolkit` eller lämna parametern på default
-- uppgraderingsskripten normaliserar gamla `DisplayMode`-värden till `AppDeployToolkit`
+- uppgraderingsskripten normaliserar gamla `DisplayMode`-värden till `AppDeployToolkit` för ännu inte färdigbehandlade meddelanden
 - tester och klientlogik för WPF/BurntToast är borttagna
 
 ## Testning

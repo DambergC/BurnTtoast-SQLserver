@@ -32,10 +32,19 @@ IF COL_LENGTH('dbo.ToastMessage', 'DisplayMode') IS NULL
 
 WHILE 1 = 1
 BEGIN
-    UPDATE TOP (1000) dbo.ToastMessage
+    UPDATE TOP (1000) m
     SET DisplayMode = 'AppDeployToolkit'
-    WHERE DisplayMode IS NULL
-       OR DisplayMode <> 'AppDeployToolkit';
+    FROM dbo.ToastMessage m
+    WHERE m.DisplayMode IS NULL
+       OR (
+            m.DisplayMode <> 'AppDeployToolkit'
+            AND EXISTS (
+                SELECT 1
+                FROM dbo.ToastDelivery d
+                WHERE d.MessageId = m.MessageId
+                  AND d.Status IN ('Pending','InProgress')
+            )
+       );
 
     IF @@ROWCOUNT = 0
         BREAK;
