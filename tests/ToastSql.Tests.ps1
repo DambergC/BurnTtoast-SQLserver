@@ -273,7 +273,7 @@ Describe 'ToastSql module' {
                     $result = Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title 'Toast title' -Body 'Toast body'
 
                     $result.ResultType | Should -Be 'Acknowledge'
-                    $script:capturedPromptParameters.Title | Should -Be 'Toast title'
+                    $script:capturedPromptParameters.ContainsKey('Title') | Should -BeFalse
                     $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
                     $script:capturedPromptParameters.ButtonRightText | Should -Be 'Acknowledge'
@@ -331,7 +331,7 @@ Describe 'ToastSql module' {
                     $body = "`r`nFirst body line`r`nSecond body line"
                     Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title '' -Body $body | Out-Null
 
-                    $script:capturedPromptParameters.Title | Should -Be 'First body line'
+                    $script:capturedPromptParameters.ContainsKey('Title') | Should -BeFalse
                     $script:capturedPromptParameters.Subtitle | Should -Be 'First body line'
                     $script:capturedPromptParameters.Message | Should -Be $body
                 } finally {

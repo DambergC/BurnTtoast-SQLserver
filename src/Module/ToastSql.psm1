@@ -754,9 +754,7 @@ function Show-ToastAppDeployToolkitPrompt {
     }
 
     if ($promptCommand.Parameters.Keys -contains 'Title') {
-        if ($promptCommand.Parameters.Keys -contains 'Subtitle') {
-            $promptParameters['Title'] = if ([string]::IsNullOrWhiteSpace($Title)) { $subtitle } else { [string]$Title }
-        } elseif (-not [string]::IsNullOrWhiteSpace($subtitle)) {
+        if (-not ($promptCommand.Parameters.Keys -contains 'Subtitle') -and -not [string]::IsNullOrWhiteSpace($subtitle)) {
             $promptParameters['Title'] = $subtitle
         }
     }
