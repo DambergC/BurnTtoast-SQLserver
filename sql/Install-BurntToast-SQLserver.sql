@@ -68,7 +68,7 @@ BEGIN
         ButtonArguments         nvarchar(2048) NULL,
         ButtonActivationType    varchar(20) NULL,
         Scenario                varchar(20) NULL,
-        DisplayMode             varchar(20) NOT NULL CONSTRAINT DF_ToastMessage_DisplayMode DEFAULT ('BurntToast'),
+        DisplayMode             varchar(20) NOT NULL CONSTRAINT DF_ToastMessage_DisplayMode DEFAULT ('AppDeployToolkit'),
         CONSTRAINT FK_ToastMessage_Group FOREIGN KEY (GroupId) REFERENCES dbo.ToastGroup(GroupId)
     );
 END;
@@ -459,8 +459,9 @@ GO
 WHILE 1 = 1
 BEGIN
     UPDATE TOP (1000) dbo.ToastMessage
-    SET DisplayMode = 'BurntToast'
-    WHERE DisplayMode IS NULL;
+    SET DisplayMode = 'AppDeployToolkit'
+    WHERE DisplayMode IS NULL
+       OR DisplayMode <> 'AppDeployToolkit';
 
     IF @@ROWCOUNT = 0
         BREAK;
@@ -476,7 +477,7 @@ IF NOT EXISTS (
       AND c.name = 'DisplayMode'
 )
     ALTER TABLE dbo.ToastMessage
-        ADD CONSTRAINT DF_ToastMessage_DisplayMode DEFAULT ('BurntToast') FOR DisplayMode;
+        ADD CONSTRAINT DF_ToastMessage_DisplayMode DEFAULT ('AppDeployToolkit') FOR DisplayMode;
 
 IF EXISTS (
     SELECT 1
@@ -508,7 +509,7 @@ CREATE OR ALTER PROCEDURE dbo.usp_QueueToastMessage
     @ButtonArguments nvarchar(2048) = NULL,
     @ButtonActivationType varchar(20) = NULL,
     @Scenario varchar(20) = 'Default',
-    @DisplayMode varchar(20) = 'BurntToast',
+    @DisplayMode varchar(20) = 'AppDeployToolkit',
     @ResolvedScenario varchar(20) = NULL OUTPUT
 AS
 BEGIN
@@ -539,10 +540,10 @@ BEGIN
         THROW 50030, 'Scenario must be Default, Reminder, Alarm, or IncomingCall.', 1;
 
     IF @DisplayMode IS NULL
-        SET @DisplayMode = 'BurntToast';
+        SET @DisplayMode = 'AppDeployToolkit';
 
-    IF @DisplayMode NOT IN ('BurntToast','Wpf','AppDeployToolkit')
-        THROW 50031, 'DisplayMode must be BurntToast, Wpf, or AppDeployToolkit.', 1;
+    IF @DisplayMode <> 'AppDeployToolkit'
+        THROW 50031, 'DisplayMode must be AppDeployToolkit.', 1;
 
     SET @ResolvedScenario = @Scenario;
 
