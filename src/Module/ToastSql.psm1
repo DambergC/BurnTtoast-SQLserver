@@ -755,7 +755,7 @@ function Show-ToastAppDeployToolkitPrompt {
 
     if ($promptCommand.Parameters.Keys -contains 'Title') {
         if ($promptCommand.Parameters.Keys -contains 'Subtitle') {
-            $promptParameters['Title'] = 'Notification'
+            $promptParameters['Title'] = if ([string]::IsNullOrWhiteSpace($Title)) { 'Notification' } else { [string]$Title }
         } elseif (-not [string]::IsNullOrWhiteSpace($subtitle)) {
             $promptParameters['Title'] = $subtitle
         }
@@ -835,6 +835,7 @@ function Invoke-ToastNotification {
 
     $displayModeValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'DisplayMode'
     [void](Resolve-ToastDisplayMode -DisplayMode $displayModeValue)
+    Ensure-ToastNotificationDependencies -DisplayMode $displayModeValue
 
     Show-ToastAppDeployToolkitPrompt `
         -MessageId (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') `

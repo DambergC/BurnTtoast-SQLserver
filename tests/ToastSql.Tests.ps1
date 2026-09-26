@@ -273,7 +273,7 @@ Describe 'ToastSql module' {
                     $result = Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title 'Toast title' -Body 'Toast body'
 
                     $result.ResultType | Should -Be 'Acknowledge'
-                    $script:capturedPromptParameters.Title | Should -Be 'Notification'
+                    $script:capturedPromptParameters.Title | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
                     $script:capturedPromptParameters.ButtonRightText | Should -Be 'Acknowledge'
@@ -606,6 +606,7 @@ function Show-InstallationPrompt {
     Context 'notification rendering' {
         It 'routes toast rows through the AppDeployToolkit prompt' {
             InModuleScope ToastSql {
+                Mock Ensure-ToastNotificationDependencies {}
                 Mock Show-ToastAppDeployToolkitPrompt { [pscustomobject]@{ Selection = 'Acknowledge'; ResultType = 'Acknowledge' } }
 
                 $row = [pscustomobject]@{
@@ -620,6 +621,7 @@ function Show-InstallationPrompt {
 
                 Invoke-ToastNotification -ToastRow $row
 
+                Should -Invoke Ensure-ToastNotificationDependencies -Times 1 -ParameterFilter { $DisplayMode -eq 'AppDeployToolkit' }
                 Should -Invoke Show-ToastAppDeployToolkitPrompt -Times 1 -ParameterFilter {
                     $MessageId -eq 42 -and
                     $Title -eq 'Title' -and
@@ -633,6 +635,7 @@ function Show-InstallationPrompt {
 
         It 'defaults missing display modes to AppDeployToolkit for queued rows' {
             InModuleScope ToastSql {
+                Mock Ensure-ToastNotificationDependencies {}
                 Mock Show-ToastAppDeployToolkitPrompt { [pscustomobject]@{ Selection = 'Acknowledge'; ResultType = 'Acknowledge' } }
 
                 $row = [pscustomobject]@{
@@ -643,6 +646,7 @@ function Show-InstallationPrompt {
 
                 Invoke-ToastNotification -ToastRow $row
 
+                Should -Invoke Ensure-ToastNotificationDependencies -Times 1
                 Should -Invoke Show-ToastAppDeployToolkitPrompt -Times 1
             }
         }

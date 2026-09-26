@@ -29,8 +29,9 @@
     # One or more group names a client should register for and listen to.
     ClientGroups = @('IT-TEST')
 
-    # Required local path to a packaged PSAppDeployToolkit copy used by this client.
-    # Point to a version-pinned module manifest, module file, or containing folder.
+    # Local path to a packaged PSAppDeployToolkit copy used by this client.
+    # Set this to a version-pinned module manifest, module file, or containing folder
+    # unless Show-ADTInstallationPrompt / Show-InstallationPrompt is already loaded in the session.
     AppDeployToolkitModulePath = $null
 
     # Enable encryption for SQL connections.
