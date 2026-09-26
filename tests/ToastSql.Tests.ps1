@@ -274,7 +274,7 @@ Describe 'ToastSql module' {
                     $result = Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title 'Toast title' -Body 'Toast body'
 
                     $result.ResultType | Should -Be 'Acknowledge'
-                    $script:capturedPromptParameters.ContainsKey('Title') | Should -BeFalse
+                    $script:capturedPromptParameters.Title | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
                     $script:capturedPromptParameters.ButtonRightText | Should -Be 'Acknowledge'
