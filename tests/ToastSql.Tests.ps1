@@ -231,7 +231,7 @@ Describe 'ToastSql module' {
 
         It 'uses a safe subtitle fallback when the toast title is blank' {
             InModuleScope ToastSql {
-                Get-ToastAppDeployToolkitSubtitle -Title '' -Body "`r`nFirst line`r`nSecond line" | Should -Be 'First line'
+                Get-ToastAppDeployToolkitSubtitle -Title '' -Body "`r`n  First line  `r`nSecond line" | Should -Be 'First line'
                 Get-ToastAppDeployToolkitSubtitle -Title '' -Body '' | Should -Be 'Notification'
             }
         }
