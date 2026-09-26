@@ -464,11 +464,11 @@ BEGIN
     WHERE m.DisplayMode IS NULL
        OR (
             m.DisplayMode <> 'AppDeployToolkit'
-            AND EXISTS (
+            AND NOT EXISTS (
                 SELECT 1
                 FROM dbo.ToastDelivery d
                 WHERE d.MessageId = m.MessageId
-                  AND d.Status IN ('Pending','InProgress')
+                  AND d.Status IN ('Delivered','Failed','Cancelled')
             )
        );
 

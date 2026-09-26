@@ -285,7 +285,7 @@ Describe 'ToastSql module' {
             }
         }
 
-        It 'does not duplicate the title into Subtitle when Subtitle is optional' {
+        It 'passes the toast title to Subtitle on optional Subtitle variants as well' {
             InModuleScope ToastSql {
                 function Show-ADTInstallationPrompt {
                     param(
@@ -305,7 +305,7 @@ Describe 'ToastSql module' {
 
                     $result.ResultType | Should -Be 'Acknowledge'
                     $script:capturedPromptParameters.Title | Should -Be 'Toast title'
-                    $script:capturedPromptParameters.ContainsKey('Subtitle') | Should -BeFalse
+                    $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
                 } finally {
                     Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
@@ -780,7 +780,7 @@ function Show-InstallationPrompt {
             $buttonScriptText | Should -Match "DisplayMode must be AppDeployToolkit"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD Scenario varchar\(20\) NULL"
             $buttonScriptText | Should -Match "ALTER TABLE dbo\.ToastMessage ADD DisplayMode varchar\(20\) NULL"
-            $buttonScriptText | Should -Match "d\.Status IN \('Pending','InProgress'\)"
+            $buttonScriptText | Should -Match "d\.Status IN \('Delivered','Failed','Cancelled'\)"
             $buttonScriptText | Should -Match "m\.Scenario"
             $buttonScriptText | Should -Match "m\.DisplayMode"
             $buttonScriptText | Should -Match "m\.AppLogoBytes"
@@ -801,7 +801,7 @@ function Show-InstallationPrompt {
             $installScriptText | Should -Match "CREATE OR ALTER FUNCTION dbo\.ufn_ToastMessageLocal"
             $installScriptText | Should -Match "CREATE OR ALTER VIEW dbo\.vw_ToastDeliveryLocal"
             $installScriptText | Should -Match "DisplayMode must be AppDeployToolkit"
-            $installScriptText | Should -Match "d\.Status IN \('Pending','InProgress'\)"
+            $installScriptText | Should -Match "d\.Status IN \('Delivered','Failed','Cancelled'\)"
             $installScriptText | Should -Match "CURRENT_TIMEZONE\(\)"
         }
     }

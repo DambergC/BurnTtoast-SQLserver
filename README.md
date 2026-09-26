@@ -121,8 +121,7 @@ Klienten mappar innehållet till ADT-prompten så här:
 
 - `Body` skickas som promptens `Message`
 - när promptvarianten använder ett separat `Title`-fält skickas toastens titel dit
-- `Subtitle` skickas bara när promptkommandot stöder det **och** varianten behöver det, eller när titeln saknas och en säker fallback måste användas
-- när `Subtitle` behöver fyllas används toastens titel om den finns; annars används första icke-tomma raden från `Body`
+- när promptkommandot stöder `Subtitle` skickas toastens titel dit; om titeln saknas används första icke-tomma raden från `Body`
 - om både `Title` och `Body` skulle sakna användbar text används fallback-värdet `Notification`
 - klienten detekterar parameterstöd innan något skickas, så äldre `Show-InstallationPrompt`-varianter inte får okända parametrar
 
