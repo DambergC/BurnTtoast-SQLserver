@@ -255,7 +255,37 @@ Describe 'ToastSql module' {
     }
 
     Context 'AppDeployToolkit prompt construction' {
-        It 'passes Subtitle when the prompt command supports it and preserves the body as the message' {
+        It 'passes Subtitle when the prompt command requires it and preserves the body as the message' {
+            InModuleScope ToastSql {
+                function Show-ADTInstallationPrompt {
+                    param(
+                        [string]$Title,
+                        [Parameter(Mandatory)][string]$Subtitle,
+                        [string]$Message,
+                        [string]$ButtonRightText,
+                        [string]$Icon
+                    )
+
+                    $script:capturedPromptParameters = $PSBoundParameters
+                    'Acknowledge'
+                }
+
+                try {
+                    $result = Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title 'Toast title' -Body 'Toast body'
+
+                    $result.ResultType | Should -Be 'Acknowledge'
+                    $script:capturedPromptParameters.Title | Should -Be 'Toast title'
+                    $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
+                    $script:capturedPromptParameters.Message | Should -Be 'Toast body'
+                    $script:capturedPromptParameters.ButtonRightText | Should -Be 'Acknowledge'
+                } finally {
+                    Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
+                    Remove-Variable -Name capturedPromptParameters -Scope Script -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        It 'does not duplicate the title into Subtitle when Subtitle is optional' {
             InModuleScope ToastSql {
                 function Show-ADTInstallationPrompt {
                     param(
@@ -275,9 +305,8 @@ Describe 'ToastSql module' {
 
                     $result.ResultType | Should -Be 'Acknowledge'
                     $script:capturedPromptParameters.Title | Should -Be 'Toast title'
-                    $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
+                    $script:capturedPromptParameters.ContainsKey('Subtitle') | Should -BeFalse
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
-                    $script:capturedPromptParameters.ButtonRightText | Should -Be 'Acknowledge'
                 } finally {
                     Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue
                     Remove-Variable -Name capturedPromptParameters -Scope Script -ErrorAction SilentlyContinue
