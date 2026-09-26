@@ -551,10 +551,7 @@ function Ensure-ToastNotificationDependencies {
         [AllowNull()][string]$DisplayMode = 'AppDeployToolkit'
     )
 
-    $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $DisplayMode
-    if ($resolvedDisplayMode -ne 'AppDeployToolkit') {
-        throw "DisplayMode '$resolvedDisplayMode' is not supported."
-    }
+    [void](Resolve-ToastDisplayMode -DisplayMode $DisplayMode)
 
     if ($null -ne (Get-ToastAppDeployToolkitPromptCommand)) {
         return
@@ -837,10 +834,7 @@ function Invoke-ToastNotification {
     )
 
     $displayModeValue = Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'DisplayMode'
-    $resolvedDisplayMode = Resolve-ToastDisplayMode -DisplayMode $displayModeValue
-    if ($resolvedDisplayMode -ne 'AppDeployToolkit') {
-        throw "DisplayMode '$resolvedDisplayMode' is not supported."
-    }
+    [void](Resolve-ToastDisplayMode -DisplayMode $displayModeValue)
 
     Show-ToastAppDeployToolkitPrompt `
         -MessageId (Get-ToastObjectPropertyValue -InputObject $ToastRow -PropertyName 'MessageId') `
