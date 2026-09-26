@@ -285,7 +285,7 @@ Describe 'ToastSql module' {
             }
         }
 
-        It 'passes the toast title to Subtitle on optional Subtitle variants as well' {
+        It 'does not duplicate the title into Subtitle when Subtitle is optional' {
             InModuleScope ToastSql {
                 function Show-ADTInstallationPrompt {
                     param(
@@ -305,7 +305,7 @@ Describe 'ToastSql module' {
 
                     $result.ResultType | Should -Be 'Acknowledge'
                     $script:capturedPromptParameters.Title | Should -Be 'Toast title'
-                    $script:capturedPromptParameters.Subtitle | Should -Be 'Toast title'
+                    $script:capturedPromptParameters.ContainsKey('Subtitle') | Should -BeFalse
                     $script:capturedPromptParameters.Message | Should -Be 'Toast body'
                 } finally {
                     Remove-Item Function:\Show-ADTInstallationPrompt -ErrorAction SilentlyContinue

@@ -774,6 +774,7 @@ function Show-ToastAppDeployToolkitPrompt {
     $subtitle = Get-ToastAppDeployToolkitSubtitle -Title $Title -Body $Body
     $messageText = if ([string]::IsNullOrWhiteSpace($Body)) { $subtitle } else { [string]$Body }
     $titleIsMandatory = Test-ToastCommandParameterMandatory -Command $promptCommand -ParameterName 'Title'
+    $subtitleIsMandatory = Test-ToastCommandParameterMandatory -Command $promptCommand -ParameterName 'Subtitle'
     $promptParameters = @{
         Message = $messageText
         ButtonRightText = $acknowledgeButtonText
@@ -789,7 +790,11 @@ function Show-ToastAppDeployToolkitPrompt {
         }
     }
 
-    if (($promptCommand.Parameters.Keys -contains 'Subtitle') -and -not [string]::IsNullOrWhiteSpace($subtitle)) {
+    if (
+        ($promptCommand.Parameters.Keys -contains 'Subtitle') -and
+        -not [string]::IsNullOrWhiteSpace($subtitle) -and
+        ($subtitleIsMandatory -or [string]::IsNullOrWhiteSpace($Title))
+    ) {
         $promptParameters['Subtitle'] = $subtitle
     }
 
