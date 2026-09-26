@@ -361,7 +361,7 @@ Describe 'ToastSql module' {
                     $body = "`r`nFirst body line`r`nSecond body line"
                     Show-ToastAppDeployToolkitPrompt -MessageId 42 -Title '' -Body $body | Out-Null
 
-                    $script:capturedPromptParameters.Title | Should -Be 'First body line'
+                    $script:capturedPromptParameters.ContainsKey('Title') | Should -BeFalse
                     $script:capturedPromptParameters.Subtitle | Should -Be 'First body line'
                     $script:capturedPromptParameters.Message | Should -Be $body
                 } finally {
