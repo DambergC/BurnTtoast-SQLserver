@@ -581,11 +581,16 @@ function Resolve-ToastProtocolUri {
         return $null
     }
 
+    $normalizedButtonArguments = [string]$ButtonArguments
+    if (-not [string]::IsNullOrWhiteSpace($normalizedButtonArguments)) {
+        $normalizedButtonArguments = $normalizedButtonArguments.Trim()
+    }
+
     $protocolUri = $null
     if (
-        -not [System.Uri]::TryCreate([string]$ButtonArguments, [System.UriKind]::Absolute, [ref]$protocolUri) -or
+        -not [System.Uri]::TryCreate($normalizedButtonArguments, [System.UriKind]::Absolute, [ref]$protocolUri) -or
         [string]::IsNullOrWhiteSpace($protocolUri.Scheme) -or
-        ([string]$ButtonArguments -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*:')
+        ($normalizedButtonArguments -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*:')
     ) {
         return $null
     }

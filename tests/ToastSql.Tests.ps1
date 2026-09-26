@@ -186,10 +186,11 @@ Describe 'ToastSql module' {
             InModuleScope ToastSql {
                 $result = Resolve-ToastAppDeployToolkitButtonSettings `
                     -ButtonText 'Open details' `
-                    -ButtonArguments 'https://example.com/details' `
+                    -ButtonArguments ' https://example.com/details ' `
                     -ButtonActivationType 'Protocol'
 
                 $result.ButtonText | Should -Be 'Open details'
+                $result.ButtonArguments | Should -Be 'https://example.com/details'
                 $result.ButtonActivationType | Should -Be 'Protocol'
                 $result.ProtocolUri.AbsoluteUri | Should -Be 'https://example.com/details'
             }
