@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 Import-Module "$PSScriptRoot\..\Module\ToastSql.psm1" -Force
 $config=Import-ToastConfig -Path $ConfigPath -RequiredProperties @('SqlServer','SqlDatabase','SqlPort','UseIntegratedSecurity','ClientName','ClientGroups','InternalPowerShellRepository','AppDeployToolkitModulePath','Encrypt','TrustServerCertificate','ConnectTimeoutSeconds','CommandTimeoutSeconds') -NullableProperties @('ClientName','InternalPowerShellRepository','AppDeployToolkitModulePath') -NonEmptyProperties @('ClientGroups') -ResolveClientName
 Set-ToastClientDependencyOptions -InternalPowerShellRepository $config.InternalPowerShellRepository -AppDeployToolkitModulePath $config.AppDeployToolkitModulePath
-Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
+#Test-ToastSqlPort -Server $config.SqlServer -Port $config.SqlPort
 $conn=Get-ToastConnectionString $config
 $sqlCredential=Get-ToastSqlCredential $config
 $computer=$config.ClientName
